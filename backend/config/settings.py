@@ -67,6 +67,14 @@ class Settings(BaseSettings):
     def temp_dir(self) -> Path:
         return self.storage_root / "temp"
 
+    @property
+    def project_root(self) -> Path:
+        return PROJECT_ROOT
+
+    @property
+    def tokens_file(self) -> Path:
+        return PROJECT_ROOT / "tokens" / "projects.json"
+
     def ensure_storage_dirs(self) -> None:
         for path in (
             self.storage_root,
@@ -74,6 +82,9 @@ class Settings(BaseSettings):
             self.chunks_dir,
             self.outputs_dir,
             self.temp_dir,
+            self.temp_dir / "audio",
+            self.temp_dir / "generation",
+            self.storage_root / "debug" / "chunks",
             self.log_file.parent,
             self.frontend_static_dir / "uploads",
         ):

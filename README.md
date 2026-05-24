@@ -131,7 +131,16 @@ Upload a Persian PDF on the dashboard (`/dashboard`). The app extracts text, app
 
 Services: `backend/services/pdf_extractor.py` (PyMuPDF), `backend/services/text_cleaner.py`, `backend/services/persian_text_repair.py`.
 
-Pipeline: **extract → clean → repair → preview**. Repair diagnostics: `storage/debug/repair/{intake_id}/`.
+Pipeline: **extract → clean → repair → preview → split → TTS → merge**. Repair diagnostics: `storage/debug/repair/{intake_id}/`.
+
+## Phase 2 — Audiobook generation
+
+1. Copy `tokens/projects.example.json` → `tokens/projects.json` and add API keys.
+2. Upload PDF, review text, click **Continue to generation**.
+3. Chunks save to `storage/temp/audio/{intake_id}/0001.wav`, …
+4. Final file: `storage/outputs/{intake_id}_final_audiobook.wav`
+
+Requires **ffmpeg** on PATH for `pydub` merge (Windows: install ffmpeg and add to PATH).
 
 ## Running tests
 

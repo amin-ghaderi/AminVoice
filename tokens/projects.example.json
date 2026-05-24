@@ -1,14 +1,10 @@
-{
-  "projects": [
-    {
-      "id": "example-project",
-      "name": "Example Audiobook",
-      "description": "Copy to projects.json and configure per-project TTS tokens and voice settings.",
-      "gemini_api_key_env": "GEMINI_API_KEY",
-      "voice": {
-        "speaker": "Speaker 1",
-        "voice_name": "Sulafat"
-      }
-    }
-  ]
-}
+[
+  {
+    "name": "project1",
+    "api_key": "YOUR_GEMINI_API_KEY_1"
+  },
+  {
+    "name": "project2",
+    "api_key": "YOUR_GEMINI_API_KEY_2"
+  }
+]

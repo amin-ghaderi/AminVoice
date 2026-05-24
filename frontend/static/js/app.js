@@ -37,9 +37,27 @@
   const previewActionMsg = document.getElementById("preview-action-msg");
   const repairBadge = document.getElementById("repair-badge");
   const repairFixCount = document.getElementById("repair-fix-count");
+  const progressStatus = document.getElementById("progress-status");
+  const progressChunk = document.getElementById("progress-chunk");
+  const progressProject = document.getElementById("progress-project");
+  const progressToken = document.getElementById("progress-token");
+  const progressEta = document.getElementById("progress-eta");
+  const btnCancelGeneration = document.getElementById("btn-cancel-generation");
+  const downloadAudiobook = document.getElementById("download-audiobook");
+  const generationMsg = document.getElementById("generation-msg");
+  const btnPreviewChunks = document.getElementById("btn-preview-chunks");
+  const chunkModal = document.getElementById("chunk-modal");
+  const chunkModalBackdrop = document.getElementById("chunk-modal-backdrop");
+  const chunkModalClose = document.getElementById("chunk-modal-close");
+  const chunkModalList = document.getElementById("chunk-modal-list");
+  const chunkStatTotal = document.getElementById("chunk-stat-total");
+  const chunkStatAvg = document.getElementById("chunk-stat-avg");
+  const chunkStatMin = document.getElementById("chunk-stat-min");
+  const chunkStatMax = document.getElementById("chunk-stat-max");
 
   let currentIntake = null;
   let isEditing = false;
+  let pollTimer = null;
 
   function shouldSkipPreview() {
     return localStorage.getItem(STORAGE_SKIP_PREVIEW) === "true";
@@ -79,19 +97,39 @@
     return div.innerHTML;
   }
 
+  function formatPersianBody(text) {
+    const trimmed = (text || "").trim();
+    if (!trimmed) return "";
+
+    return trimmed
+      .split(/\n\s*\n/)
+      .map(function (block) {
+        const lines = block
+          .split("\n")
+          .map(function (line) {
+            return escapeHtml(line.trim());
+          })
+          .filter(Boolean);
+        if (!lines.length) return "";
+        return '<p class="persian-paragraph">' + lines.join("<br>") + "</p>";
+      })
+      .filter(Boolean)
+      .join("");
+  }
+
   function renderPageSections(pages) {
     return pages
       .map(function (page) {
-        const body = escapeHtml(page.text || "").replace(/\n/g, "<br>");
-        const empty = !(page.text || "").trim();
+        const body = formatPersianBody(page.text);
+        const empty = !body;
         return (
           '<article class="mb-8 border-b border-slate-700/80 pb-6 last:mb-0 last:border-0 last:pb-0">' +
-          '<h3 class="mb-3 text-xs font-semibold uppercase tracking-wider text-accent">Page ' +
+          '<h3 class="preview-page-label mb-3 text-xs font-semibold uppercase text-accent">Page ' +
           page.page_number +
           "</h3>" +
           (empty
-            ? '<p class="text-sm italic text-slate-500">(no text on this page)</p>'
-            : '<div class="whitespace-pre-wrap">' + body + "</div>") +
+            ? '<p class="text-sm italic text-slate-500" dir="ltr" style="text-align:left">(no text on this page)</p>'
+            : '<div class="preview-page-body">' + body + "</div>") +
           "</article>"
         );
       })
@@ -196,8 +234,180 @@
     showActionMessage("Edits saved.");
   }
 
+  function stopPolling() {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  }
+
+  function updateProgressUI(data) {
+    if (progressStatus) progressStatus.textContent = data.status || "—";
+    if (progressChunk) {
+      progressChunk.textContent =
+        data.total_chunks > 0
+          ? data.current_chunk + " / " + data.total_chunks
+          : "—";
+    }
+    if (progressProject && currentIntake) {
+      progressProject.textContent = currentIntake.filename;
+    }
+    if (progressToken) {
+      progressToken.textContent =
+        data.total_tokens > 0
+          ? data.current_token_index + " / " + data.total_tokens
+          : "—";
+    }
+    if (progressEta) progressEta.textContent = data.eta || "—";
+  }
+
+  function showGenerationMessage(msg, isError) {
+    if (!generationMsg) return;
+    generationMsg.textContent = msg;
+    generationMsg.classList.remove("hidden", "text-red-400", "text-slate-400", "text-emerald-400");
+    generationMsg.classList.add(
+      isError ? "text-red-400" : msg.indexOf("complete") >= 0 ? "text-emerald-400" : "text-slate-400"
+    );
+  }
+
+  async function pollGenerationStatus() {
+    if (!currentIntake) return;
+    const response = await fetch(
+      "/api/v1/pdf/" + currentIntake.intake_id + "/generation/status"
+    );
+    if (response.status === 404) return;
+    const data = await response.json().catch(function () {
+      return {};
+    });
+    if (!response.ok) return;
+
+    updateProgressUI(data);
+
+    if (data.status === "completed") {
+      stopPolling();
+      if (btnCancelGeneration) btnCancelGeneration.classList.add("hidden");
+      if (downloadAudiobook && data.output_path) {
+        downloadAudiobook.classList.remove("hidden");
+        downloadAudiobook.href =
+          "/api/v1/pdf/" + currentIntake.intake_id + "/audiobook/download";
+      }
+      showGenerationMessage("Audiobook ready: " + (data.output_path || "output saved"));
+      return;
+    }
+
+    if (data.status === "failed") {
+      stopPolling();
+      if (btnCancelGeneration) btnCancelGeneration.classList.add("hidden");
+      showGenerationMessage(data.error || "Generation failed.", true);
+      return;
+    }
+
+    if (data.status === "cancelled") {
+      stopPolling();
+      if (btnCancelGeneration) btnCancelGeneration.classList.add("hidden");
+      showGenerationMessage("Generation cancelled.");
+    }
+  }
+
+  function openChunkModal() {
+    if (chunkModal) {
+      chunkModal.classList.remove("hidden");
+      chunkModal.setAttribute("aria-hidden", "false");
+    }
+  }
+
+  function closeChunkModal() {
+    if (chunkModal) {
+      chunkModal.classList.add("hidden");
+      chunkModal.setAttribute("aria-hidden", "true");
+    }
+  }
+
+  function renderChunkPreview(data) {
+    if (chunkStatTotal) chunkStatTotal.textContent = String(data.total_chunks);
+    if (chunkStatAvg) chunkStatAvg.textContent = data.avg_chars + " chars";
+    if (chunkStatMin) chunkStatMin.textContent = data.min_chars + " chars";
+    if (chunkStatMax) chunkStatMax.textContent = data.max_chars + " chars";
+
+    if (!chunkModalList) return;
+    chunkModalList.innerHTML = (data.chunks || [])
+      .map(function (chunk) {
+        let badge = "";
+        if (chunk.warning === "Too small") {
+          badge =
+            '<span class="chunk-badge-warn small">Too small</span>';
+        } else if (chunk.warning === "Too large") {
+          badge =
+            '<span class="chunk-badge-warn large">Too large</span>';
+        }
+        return (
+          '<article class="chunk-card">' +
+          '<div class="chunk-card-header">' +
+          '<span class="text-sm font-semibold text-accent">Chunk #' +
+          chunk.index +
+          "</span>" +
+          '<span class="text-xs text-slate-500">(' +
+          chunk.char_count +
+          " chars)</span>" +
+          badge +
+          "</div>" +
+          '<div class="chunk-card-body">' +
+          escapeHtml(chunk.full_text) +
+          "</div>" +
+          "</article>"
+        );
+      })
+      .join("");
+  }
+
+  async function previewChunks() {
+    if (!currentIntake) return;
+
+    if (isEditing && previewEditor) {
+      await saveEdits();
+    }
+
+    if (btnPreviewChunks) {
+      btnPreviewChunks.disabled = true;
+      btnPreviewChunks.textContent = "Loading chunks…";
+    }
+
+    try {
+      const response = await fetch(
+        "/api/v1/pdf/" + currentIntake.intake_id + "/chunk-preview",
+        { method: "POST" }
+      );
+      const data = await response.json().catch(function () {
+        return {};
+      });
+      if (!response.ok) {
+        throw new Error(formatApiError(data, "Chunk preview failed."));
+      }
+      renderChunkPreview(data);
+      openChunkModal();
+      showActionMessage("Chunk preview ready (" + data.total_chunks + " chunks).");
+    } catch (err) {
+      showActionMessage(err.message || "Chunk preview failed.", true);
+    } finally {
+      if (btnPreviewChunks) {
+        btnPreviewChunks.disabled = false;
+        btnPreviewChunks.textContent = "Preview chunks";
+      }
+    }
+  }
+
   async function continueToGeneration() {
     if (!currentIntake) return;
+
+    if (isEditing && previewEditor) {
+      await saveEdits();
+    }
+
+    if (progressStatus) progressStatus.textContent = "Starting…";
+    if (progressProject) progressProject.textContent = currentIntake.filename;
+    if (btnCancelGeneration) btnCancelGeneration.classList.remove("hidden");
+    if (downloadAudiobook) downloadAudiobook.classList.add("hidden");
+
     const response = await fetch(
       "/api/v1/pdf/" + currentIntake.intake_id + "/continue",
       { method: "POST" }
@@ -207,13 +417,30 @@
     });
     if (!response.ok) {
       showActionMessage(formatApiError(payload, "Continue failed."), true);
+      if (btnCancelGeneration) btnCancelGeneration.classList.add("hidden");
       return;
     }
-    const status = document.getElementById("progress-status");
-    if (status) status.textContent = "Text validated";
-    const project = document.getElementById("progress-project");
-    if (project) project.textContent = currentIntake.filename;
-    showActionMessage(payload.message || "Ready for generation (next phase).");
+
+    if (progressStatus) progressStatus.textContent = "Generating";
+    if (progressChunk) {
+      progressChunk.textContent = "0 / " + (payload.total_chunks || "?");
+    }
+    if (progressEta) progressEta.textContent = "estimating...";
+
+    showActionMessage("Generating audiobook (" + payload.total_chunks + " chunks)…");
+    showGenerationMessage("Sequential TTS in progress…");
+
+    stopPolling();
+    pollTimer = setInterval(pollGenerationStatus, 2000);
+    pollGenerationStatus();
+  }
+
+  async function cancelGeneration() {
+    if (!currentIntake) return;
+    await fetch("/api/v1/pdf/" + currentIntake.intake_id + "/generation/cancel", {
+      method: "POST",
+    });
+    showGenerationMessage("Cancelling generation…");
   }
 
   function showActionMessage(msg, isError) {
@@ -250,8 +477,23 @@
     btnContinue.addEventListener("click", continueToGeneration);
   }
 
+  if (btnPreviewChunks) {
+    btnPreviewChunks.addEventListener("click", previewChunks);
+  }
+
+  if (chunkModalClose) {
+    chunkModalClose.addEventListener("click", closeChunkModal);
+  }
+  if (chunkModalBackdrop) {
+    chunkModalBackdrop.addEventListener("click", closeChunkModal);
+  }
+
   if (btnCancel) {
     btnCancel.addEventListener("click", cancelIntake);
+  }
+
+  if (btnCancelGeneration) {
+    btnCancelGeneration.addEventListener("click", cancelGeneration);
   }
 
   const btnStart = document.getElementById("btn-start");

@@ -2,6 +2,11 @@
 
 {% block title %}Dashboard — {{ app_name }}{% endblock %}
 
+{% block head %}
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/vazirmatn@33.0.3/Vazirmatn-font-face.min.css" crossorigin="anonymous" />
+  <link rel="stylesheet" href="/static/css/preview.css" />
+{% endblock %}
+
 {% block content %}
 <div class="space-y-8">
   <section id="upload-section" class="rounded-2xl border border-slate-800 bg-surface-light p-6 shadow-xl">
@@ -106,13 +111,18 @@
       </div>
     </div>
 
-    <div id="preview-readonly" class="max-h-[28rem] overflow-y-auto rounded-xl border border-slate-700 bg-slate-900/80 p-4 font-serif text-base leading-relaxed text-slate-200" dir="auto" lang="fa"></div>
+    <div
+      id="preview-readonly"
+      class="preview-persian max-h-[28rem] overflow-y-auto rounded-xl border border-slate-700 bg-slate-900/80 p-4 text-base text-slate-200"
+      lang="fa"
+      dir="rtl"
+    ></div>
 
     <textarea
       id="preview-editor"
-      class="hidden min-h-[20rem] w-full resize-y rounded-xl border border-slate-600 bg-slate-900 p-4 font-serif text-base leading-relaxed text-slate-100 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-      dir="auto"
+      class="preview-editor hidden min-h-[20rem] w-full resize-y rounded-xl border border-slate-600 bg-slate-900 p-4 text-base text-slate-100 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
       lang="fa"
+      dir="rtl"
     ></textarea>
 
     <label class="mt-4 flex cursor-pointer items-center gap-3 text-sm text-slate-400">
@@ -123,6 +133,9 @@
     <div class="mt-6 flex flex-wrap gap-3">
       <button type="button" id="btn-continue" class="rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-white hover:bg-accent-hover">
         Continue to generation
+      </button>
+      <button type="button" id="btn-preview-chunks" class="rounded-lg border border-indigo-600 bg-indigo-950/50 px-5 py-2.5 text-sm font-semibold text-indigo-200 hover:border-indigo-400">
+        Preview chunks
       </button>
       <button type="button" id="btn-edit" class="rounded-lg border border-slate-600 bg-slate-900 px-5 py-2.5 text-sm font-semibold text-slate-200 hover:border-slate-500">
         Edit extracted text
@@ -136,6 +149,45 @@
     </div>
     <p id="preview-action-msg" class="mt-3 hidden text-sm text-slate-400"></p>
   </section>
+
+  <!-- Chunk preview modal -->
+  <div id="chunk-modal" class="fixed inset-0 z-50 hidden" aria-hidden="true">
+    <div id="chunk-modal-backdrop" class="absolute inset-0 bg-black/70 backdrop-blur-sm"></div>
+    <div class="relative mx-auto flex h-full max-h-screen max-w-4xl flex-col p-4 sm:p-6">
+      <div class="flex max-h-[90vh] flex-col overflow-hidden rounded-2xl border border-slate-700 bg-slate-900 shadow-2xl">
+        <div class="flex items-start justify-between gap-4 border-b border-slate-700 px-6 py-4">
+          <div>
+            <h2 class="text-lg font-semibold text-white">Chunk preview</h2>
+            <p class="mt-1 text-xs text-slate-400">Same semantic splitter used for TTS (~350–2000 chars per chunk).</p>
+          </div>
+          <button type="button" id="chunk-modal-close" class="rounded-lg px-3 py-1 text-sm text-slate-400 hover:bg-slate-800 hover:text-white">
+            Close
+          </button>
+        </div>
+
+        <div id="chunk-modal-stats" class="grid gap-3 border-b border-slate-800 bg-slate-900/80 px-6 py-4 sm:grid-cols-2 lg:grid-cols-4">
+          <div>
+            <p class="text-xs text-slate-500">Total chunks</p>
+            <p id="chunk-stat-total" class="text-lg font-medium text-slate-200">—</p>
+          </div>
+          <div>
+            <p class="text-xs text-slate-500">Average size</p>
+            <p id="chunk-stat-avg" class="text-lg font-medium text-slate-200">—</p>
+          </div>
+          <div>
+            <p class="text-xs text-slate-500">Smallest chunk</p>
+            <p id="chunk-stat-min" class="text-lg font-medium text-slate-200">—</p>
+          </div>
+          <div>
+            <p class="text-xs text-slate-500">Largest chunk</p>
+            <p id="chunk-stat-max" class="text-lg font-medium text-slate-200">—</p>
+          </div>
+        </div>
+
+        <div id="chunk-modal-list" class="preview-persian flex-1 overflow-y-auto px-6 py-4"></div>
+      </div>
+    </div>
+  </div>
 
   <section class="rounded-2xl border border-slate-800 bg-surface-light p-6 shadow-xl">
     <h2 class="mb-4 text-xl font-semibold text-white">Progress</h2>
@@ -153,11 +205,32 @@
         <p id="progress-project" class="mt-1 text-lg font-medium text-slate-300">—</p>
       </div>
       <div class="rounded-xl bg-slate-900/60 p-4">
+        <p class="text-xs uppercase tracking-wide text-slate-500">Current token</p>
+        <p id="progress-token" class="mt-1 text-lg font-medium text-slate-300">—</p>
+      </div>
+      <div class="rounded-xl bg-slate-900/60 p-4">
         <p class="text-xs uppercase tracking-wide text-slate-500">ETA</p>
         <p id="progress-eta" class="mt-1 text-lg font-medium text-slate-300">—</p>
       </div>
     </div>
-    <p class="mt-4 text-xs text-slate-500">TTS generation will update this panel in a later phase.</p>
+    <div class="mt-4 flex flex-wrap gap-3">
+      <button
+        type="button"
+        id="btn-cancel-generation"
+        class="hidden rounded-lg border border-red-800/80 bg-red-950/40 px-5 py-2.5 text-sm font-semibold text-red-200 hover:border-red-600"
+      >
+        Cancel generation
+      </button>
+      <a
+        id="download-audiobook"
+        class="hidden rounded-lg border border-emerald-700 bg-emerald-900/40 px-5 py-2.5 text-sm font-semibold text-emerald-200"
+        href="#"
+        download
+      >
+        Download audiobook
+      </a>
+    </div>
+    <p id="generation-msg" class="mt-3 hidden text-sm text-slate-400"></p>
   </section>
 </div>
 {% endblock %}

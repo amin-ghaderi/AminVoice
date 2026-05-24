@@ -1,0 +1,82 @@
+/* Persian PDF text preview — RTL-safe rendering */
+
+.preview-persian {
+  direction: rtl;
+  text-align: right;
+  unicode-bidi: plaintext;
+  font-family: Vazirmatn, IRANSans, Tahoma, "Segoe UI", sans-serif;
+  line-height: 1.85;
+  word-wrap: break-word;
+  overflow-wrap: anywhere;
+}
+
+.preview-persian .persian-paragraph {
+  margin: 0 0 1rem;
+  unicode-bidi: plaintext;
+}
+
+.preview-persian .persian-paragraph:last-child {
+  margin-bottom: 0;
+}
+
+.preview-persian .preview-page-body {
+  unicode-bidi: plaintext;
+}
+
+.preview-persian .preview-page-label {
+  direction: ltr;
+  text-align: left;
+  unicode-bidi: isolate;
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: 0.05em;
+}
+
+.preview-editor {
+  direction: rtl;
+  text-align: right;
+  unicode-bidi: plaintext;
+  font-family: Vazirmatn, IRANSans, Tahoma, "Segoe UI", sans-serif;
+  line-height: 1.85;
+}
+
+.chunk-card {
+  margin-bottom: 1.25rem;
+  border-radius: 0.75rem;
+  border: 1px solid rgb(51 65 85);
+  background: rgb(15 23 42 / 0.6);
+  padding: 1rem;
+}
+
+.chunk-card-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  direction: ltr;
+  text-align: left;
+}
+
+.chunk-badge-warn {
+  border-radius: 9999px;
+  padding: 0.125rem 0.5rem;
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.chunk-badge-warn.small {
+  border: 1px solid rgb(234 179 8 / 0.5);
+  background: rgb(113 63 18 / 0.4);
+  color: rgb(253 224 71);
+}
+
+.chunk-badge-warn.large {
+  border: 1px solid rgb(248 113 113 / 0.5);
+  background: rgb(127 29 29 / 0.4);
+  color: rgb(252 165 165);
+}
+
+.chunk-card-body {
+  white-space: pre-wrap;
+  unicode-bidi: plaintext;
+}

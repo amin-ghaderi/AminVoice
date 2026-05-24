@@ -35,6 +35,12 @@ _GLYPH_REPLACEMENTS_SAFE = {
     k: v for k, v in DEFAULT_GLYPH_REPLACEMENTS.items() if len(k) > 2
 }
 
+_GREGORIAN_YEAR_MIN = 1900
+_GREGORIAN_YEAR_MAX = 2099
+
+# Standalone exactly-four-digit tokens (Persian, Arabic, or Western digits).
+_YEAR_TOKEN = re.compile(rf"(?<![{_DIGITS_CLASS}])([{_DIGITS_CLASS}]{{4}})(?![{_DIGITS_CLASS}])")
+
 
 @dataclass
 class RepairChange:
@@ -49,6 +55,8 @@ class RepairChange:
             return f"[JOINED_PARAGRAPH]\n{self.before}\n→ {self.after}"
         if self.kind == "DIGIT_REPAIR":
             return f"[DIGIT_REPAIR]\n{self.before}\n→ {self.after}"
+        if self.kind == "YEAR_FIX":
+            return f"[YEAR_FIX]\n{self.before}\n→ {self.after}"
         return f"[REPLACED]\n{self.before}\n→ {self.after}"
 
 
@@ -84,8 +92,8 @@ class PersianTextRepairService:
         current, glyph_changes = self._apply_glyph_replacements(current)
         changes.extend(glyph_changes)
 
-        current, digit_changes = self._repair_fragmented_years(current)
-        changes.extend(digit_changes)
+        current, year_changes = repair_persian_years_with_changes(current)
+        changes.extend(year_changes)
 
         current, line_changes = self._repair_broken_lines(current)
         changes.extend(line_changes)
@@ -194,70 +202,6 @@ class PersianTextRepairService:
 
         return "\n\n".join(normalized).strip(), changes
 
-    def _repair_fragmented_years(self, text: str) -> tuple[str, list[RepairChange]]:
-        changes: list[RepairChange] = []
-
-        def line_merge(match: re.Match[str]) -> str:
-            first = match.group(1)
-            second = match.group(2)
-            persian = self._normalize_year_digits(first + second)
-            if persian is None:
-                return match.group(0)
-            changes.append(
-                RepairChange(
-                    kind="DIGIT_REPAIR",
-                    before=f"{first}\n{second}",
-                    after=persian,
-                )
-            )
-            return persian
-
-        # Digit-only line followed by digit-only continuation (2–3 digits).
-        pattern = re.compile(
-            rf"(?m)^([{_DIGITS_CLASS}]{{1,2}})\s*\n\s*([{_DIGITS_CLASS}]{{2,3}})\s*$",
-        )
-        text = pattern.sub(line_merge, text)
-
-        # Year alone on the next line after context (e.g. "در سال\n٩٧٩١").
-        def year_after_context(match: re.Match[str]) -> str:
-            prefix = match.group(1)
-            digits = match.group(2)
-            persian = self._normalize_year_digits(digits)
-            if persian is None:
-                return match.group(0)
-            changes.append(
-                RepairChange(
-                    kind="DIGIT_REPAIR",
-                    before=f"{prefix}\n{digits}",
-                    after=f"{prefix} {persian}",
-                )
-            )
-            return f"{prefix} {persian}"
-
-        context_year = re.compile(
-            rf"(سال|در سال)\s*\n\s*([{_DIGITS_CLASS}]{{3,4}})\s*(?=\n|$)",
-        )
-        text = context_year.sub(year_after_context, text)
-
-        # Same-line fragmented year: "٩\n" already handled; inline "٩ ٧٩١" → careful
-        inline = re.compile(rf"([{_DIGITS_CLASS}])\s+([{_DIGITS_CLASS}]{{2,3}})(?![{_DIGITS_CLASS}])")
-
-        def inline_merge(match: re.Match[str]) -> str:
-            persian = self._normalize_year_digits(match.group(1) + match.group(2))
-            if persian is None:
-                return match.group(0)
-            changes.append(
-                RepairChange(
-                    kind="DIGIT_REPAIR",
-                    before=match.group(0),
-                    after=persian,
-                )
-            )
-            return persian
-
-        text = inline.sub(inline_merge, text)
-        return text, changes
-
     def _should_join_broken_word(self, upper: str, lower: str) -> bool:
         u = upper.strip()
         low = lower.strip()
@@ -323,29 +267,133 @@ class PersianTextRepairService:
         t = text.lstrip()
         return bool(t) and (_PERSIAN_RE.match(t[0]) or t[0].isalnum())
 
-    @staticmethod
-    def _digits_to_western(value: str) -> str:
-        persian = str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
-        arabic = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
-        return value.translate(persian).translate(arabic)
+def repair_persian_years(text: str) -> str:
+    """Repair high-confidence Gregorian years (1900–2099) in Persian/Arabic digits."""
+    repaired, _ = repair_persian_years_with_changes(text)
+    return repaired
 
-    @staticmethod
-    def _digits_to_persian(value: str) -> str:
-        western = PersianTextRepairService._digits_to_western(value)
-        return western.translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹"))
 
-    @staticmethod
-    def _normalize_year_digits(digits: str) -> str | None:
-        western = PersianTextRepairService._digits_to_western(digits)
-        if len(western) != 4 or not western.isdigit():
-            return None
-        candidates = [western, western[::-1]]
-        for candidate in candidates:
-            year = int(candidate)
-            if (1300 <= year <= 1410) or (1900 <= year <= 2030):
-                return PersianTextRepairService._digits_to_persian(candidate)
+def repair_persian_years_with_changes(text: str) -> tuple[str, list[RepairChange]]:
+    changes: list[RepairChange] = []
+
+    text = _repair_fragmented_year_forms(text, changes)
+    text = _repair_reversed_four_digit_years(text, changes)
+    return text, changes
+
+
+def _repair_fragmented_year_forms(text: str, changes: list[RepairChange]) -> str:
+    """Join fragmented year digits only when the result is a plausible Gregorian year."""
+
+    def record(before: str, after: str) -> None:
+        changes.append(RepairChange(kind="YEAR_FIX", before=before, after=after))
+
+    def line_merge(match: re.Match[str]) -> str:
+        first = match.group(1)
+        second = match.group(2)
+        persian = _resolve_gregorian_year_token(first + second)
+        if persian is None:
+            return match.group(0)
+        record(f"{first}\n{second}", persian)
+        return persian
+
+    pattern = re.compile(
+        rf"(?m)^([{_DIGITS_CLASS}]{{1,2}})\s*\n\s*([{_DIGITS_CLASS}]{{2,3}})\s*$",
+    )
+    text = pattern.sub(line_merge, text)
+
+    def year_after_context(match: re.Match[str]) -> str:
+        prefix = match.group(1)
+        digits = match.group(2)
+        if len(_digits_to_western(digits)) != 4:
+            return match.group(0)
+        persian = _resolve_gregorian_year_token(digits)
+        if persian is None:
+            return match.group(0)
+        record(f"{prefix}\n{digits}", f"{prefix} {persian}")
+        return f"{prefix} {persian}"
+
+    context_year = re.compile(
+        rf"(سال|در سال)\s*\n\s*([{_DIGITS_CLASS}]{{4}})\s*(?=\n|$)",
+    )
+    text = context_year.sub(year_after_context, text)
+
+    inline = re.compile(rf"([{_DIGITS_CLASS}])\s+([{_DIGITS_CLASS}]{{2,3}})(?![{_DIGITS_CLASS}])")
+
+    def inline_merge(match: re.Match[str]) -> str:
+        combined = match.group(1) + match.group(2)
+        persian = _resolve_gregorian_year_token(combined)
+        if persian is None:
+            return match.group(0)
+        record(match.group(0), persian)
+        return persian
+
+    return inline.sub(inline_merge, text)
+
+
+def _repair_reversed_four_digit_years(text: str, changes: list[RepairChange]) -> str:
+    def replacer(match: re.Match[str]) -> str:
+        token = match.group(1)
+        fixed = _fix_reversed_year_token(token)
+        if fixed is None:
+            return token
+        changes.append(RepairChange(kind="YEAR_FIX", before=token, after=fixed))
+        return fixed
+
+    return _YEAR_TOKEN.sub(replacer, text)
+
+
+def _fix_reversed_year_token(token: str) -> str | None:
+    """Fix RTL-reversed 4-digit Gregorian years; leave valid years unchanged."""
+    if len(token) != 4:
         return None
 
-    @staticmethod
-    def _is_plausible_year(combined: str) -> bool:
-        return PersianTextRepairService._normalize_year_digits(combined) is not None
+    western = _digits_to_western(token)
+    if not western.isdigit():
+        return None
+
+    canonical = _digits_to_persian(western)
+    forward_ok = _is_gregorian_year(western)
+    reversed_western = western[::-1]
+    reverse_ok = _is_gregorian_year(reversed_western)
+
+    if forward_ok:
+        return None if token == canonical else canonical
+
+    if reverse_ok and not forward_ok:
+        return _digits_to_persian(reversed_western)
+
+    return None
+
+
+def _resolve_gregorian_year_token(digits: str) -> str | None:
+    """Normalize a 4-digit token to Persian digits if it is (or reverses to) 1900–2099."""
+    western = _digits_to_western(digits)
+    if len(western) != 4 or not western.isdigit():
+        return None
+
+    if _is_gregorian_year(western):
+        return _digits_to_persian(western)
+
+    reversed_western = western[::-1]
+    if _is_gregorian_year(reversed_western):
+        return _digits_to_persian(reversed_western)
+
+    return None
+
+
+def _is_gregorian_year(western_four_digit: str) -> bool:
+    if len(western_four_digit) != 4 or not western_four_digit.isdigit():
+        return False
+    year = int(western_four_digit)
+    return _GREGORIAN_YEAR_MIN <= year <= _GREGORIAN_YEAR_MAX
+
+
+def _digits_to_western(value: str) -> str:
+    persian = str.maketrans("۰۱۲۳۴۵۶۷۸۹", "0123456789")
+    arabic = str.maketrans("٠١٢٣٤٥٦٧٨٩", "0123456789")
+    return value.translate(persian).translate(arabic)
+
+
+def _digits_to_persian(value: str) -> str:
+    western = _digits_to_western(value)
+    return western.translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹"))

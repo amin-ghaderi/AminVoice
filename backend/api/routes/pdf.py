@@ -70,24 +70,6 @@ def cancel_intake(
     return PdfIntakeMessageResponse(message="Intake cancelled.", intake_id=intake_id)
 
 
-@router.post("/{intake_id}/continue", response_model=PdfIntakeMessageResponse)
-def continue_to_generation(
-    intake_id: str,
-    service: PdfIntakeService = Depends(get_pdf_intake_service),
-) -> PdfIntakeMessageResponse:
-    payload = service.get_intake(intake_id)
-    if payload is None:
-        raise HTTPException(status_code=404, detail="Intake session not found.")
-
-    # TODO: chunking — split full_text into timed segments
-    # TODO: TTS generation — enqueue Gemini synthesis per chunk
-    # TODO: retry system — resume failed chunks with backoff
-    return PdfIntakeMessageResponse(
-        message="Text validated. Generation pipeline not implemented yet.",
-        intake_id=intake_id,
-    )
-
-
 def _to_response(payload) -> PdfUploadResponse:
     return PdfUploadResponse(
         intake_id=payload.intake_id,
