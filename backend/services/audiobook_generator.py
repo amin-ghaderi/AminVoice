@@ -215,10 +215,10 @@ class AudiobookGenerator:
                 time.sleep(2)
         raise RuntimeError(f"Chunk {wav_path.name} failed after retries: {last_error}")
 
-    def _set_status(self, status: GenerationStatus, **fields) -> None:
+    def _set_status(self, record: GenerationStatus, **fields) -> None:
         for key, value in fields.items():
-            setattr(status, key, value)
-        self._status_store.write(status)
+            setattr(record, key, value)
+        self._status_store.write(record)
 
     @staticmethod
     def _token_status_kwargs(token_pool: TokenPool) -> dict:
