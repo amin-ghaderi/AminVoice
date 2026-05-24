@@ -26,7 +26,8 @@ DEFAULT_GLYPH_REPLACEMENTS: dict[str, str] = {
 
 _PERSIAN_RE = re.compile(r"[\u0600-\u06FF\u0750-\u077F]")
 _SENTENCE_END = re.compile(r"[.!?؟۔:\]\)»\"']\s*$")
-_DIGIT_CHAR = re.compile(r"[۰-۹0-9]")
+_DIGITS_CLASS = r"۰-۹0-9٠-٩"
+_DIGIT_CHAR = re.compile(f"[{_DIGITS_CLASS}]")
 _LATIN_WORD = re.compile(r"[A-Za-z]{4,}")
 
 # Do not apply single-char ھ→ه globally via dict; handle separately if needed.
@@ -213,7 +214,7 @@ class PersianTextRepairService:
 
         # Digit-only line followed by digit-only continuation (2–3 digits).
         pattern = re.compile(
-            r"(?m)^([۰-۹0-9]{1,2})\s*\n\s*([۰-۹0-9]{2,3})\s*$",
+            rf"(?m)^([{_DIGITS_CLASS}]{{1,2}})\s*\n\s*([{_DIGITS_CLASS}]{{2,3}})\s*$",
         )
         text = pattern.sub(line_merge, text)
 
@@ -234,12 +235,12 @@ class PersianTextRepairService:
             return f"{prefix} {persian}"
 
         context_year = re.compile(
-            r"(سال|در سال|سال )\s*\n\s*([۰-۹0-9]{3,4})\s*(?=\n|$)",
+            rf"(سال|در سال)\s*\n\s*([{_DIGITS_CLASS}]{{3,4}})\s*(?=\n|$)",
         )
         text = context_year.sub(year_after_context, text)
 
         # Same-line fragmented year: "٩\n" already handled; inline "٩ ٧٩١" → careful
-        inline = re.compile(r"([۰-۹0-9])\s+([۰-۹0-9]{2,3})(?![۰-۹0-9])")
+        inline = re.compile(rf"([{_DIGITS_CLASS}])\s+([{_DIGITS_CLASS}]{{2,3}})(?![{_DIGITS_CLASS}])")
 
         def inline_merge(match: re.Match[str]) -> str:
             persian = self._normalize_year_digits(match.group(1) + match.group(2))
@@ -270,9 +271,9 @@ class PersianTextRepairService:
             return False
         if " " in low:
             return False
-        if _DIGIT_CHAR.fullmatch(low) or _DIGIT_CHAR.search(low):
+        if _DIGIT_CHAR.fullmatch(low.replace(" ", "")):
             return False
-        if _DIGIT_CHAR.search(u.split()[-1]):
+        if _DIGIT_CHAR.fullmatch(u.split()[-1].replace(" ", "")):
             return False
         if not self._is_persian_heavy(u) or not self._is_persian_heavy(low):
             return False

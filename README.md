@@ -129,7 +129,9 @@ Upload a Persian PDF on the dashboard (`/dashboard`). The app extracts text, app
 | `/api/v1/pdf/{id}/continue` | POST | Placeholder — chunking / TTS not implemented |
 | `/api/v1/pdf/{id}` | DELETE | Cancel intake session |
 
-Services: `backend/services/pdf_extractor.py` (PyMuPDF), `backend/services/text_cleaner.py`.
+Services: `backend/services/pdf_extractor.py` (PyMuPDF), `backend/services/text_cleaner.py`, `backend/services/persian_text_repair.py`.
+
+Pipeline: **extract → clean → repair → preview**. Repair diagnostics: `storage/debug/repair/{intake_id}/`.
 
 ## Running tests
 
