@@ -1,10 +1,12 @@
 [
   {
     "name": "project1",
-    "api_key": "YOUR_GEMINI_API_KEY_1"
+    "api_key": "YOUR_GEMINI_API_KEY_1",
+    "enabled": true
   },
   {
     "name": "project2",
-    "api_key": "YOUR_GEMINI_API_KEY_2"
+    "api_key": "YOUR_GEMINI_API_KEY_2",
+    "enabled": true
   }
 ]

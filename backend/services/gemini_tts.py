@@ -6,12 +6,14 @@ import logging
 import mimetypes
 import struct
 import time
+from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 from google import genai
 from google.genai import types
 
-from backend.services.token_pool import TokenPool
+from backend.services.token_pool import GenerationCancelled, TokenPool
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +60,15 @@ Speaker 1:
 [human tone]
 
 """
+
+
+@dataclass
+class TtsProgressHooks:
+    on_calling: Callable[[], None] | None = None
+    on_received: Callable[[], None] | None = None
+    on_rate_limited: Callable[[int], None] | None = None
+    on_waiting_tick: Callable[[int], None] | None = None
+    cancel_checker: Callable[[], bool] | None = None
 
 
 def _build_generate_config() -> types.GenerateContentConfig:
@@ -173,6 +184,7 @@ def generate_audio(
     token_pool: TokenPool,
     *,
     max_attempts: int = 15,
+    hooks: TtsProgressHooks | None = None,
 ) -> None:
     """Generate one WAV file for a text chunk with token fallback on quota errors."""
     prompt = _DIRECTOR_PROMPT + text.strip()
@@ -186,16 +198,29 @@ def generate_audio(
 
     last_error: Exception | None = None
     tried_all_tokens = False
+    cancel_checker = hooks.cancel_checker if hooks else None
 
     for attempt in range(max_attempts):
+        if cancel_checker and cancel_checker():
+            raise GenerationCancelled("Generation cancelled.")
+
         api_key = token_pool.current_key()
         client = genai.Client(api_key=api_key)
         try:
+            if hooks and hooks.on_calling:
+                hooks.on_calling()
+            logger.info("Calling Gemini TTS (token %s/%s)", token_pool.current_index, token_pool.total)
+
             response = client.models.generate_content(
                 model=MODEL,
                 contents=contents,
                 config=config,
             )
+
+            if hooks and hooks.on_received:
+                hooks.on_received()
+            logger.info("Gemini response received")
+
             inline_items = _collect_inline_audio(response)
             if not inline_items:
                 raise RuntimeError("No audio data in Gemini response.")
@@ -212,14 +237,21 @@ def generate_audio(
             out = Path(output_path)
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_bytes(data_buffer)
-            logger.info("Saved TTS chunk: %s", out.name)
+            logger.info("Saved wav: %s", out.name)
             return
 
+        except GenerationCancelled:
+            raise
         except Exception as exc:
             last_error = exc
             if _is_rate_limit_error(exc):
+                if hooks and hooks.on_rate_limited:
+                    hooks.on_rate_limited(token_pool.wait_seconds)
                 if not token_pool.advance():
-                    token_pool.wait_and_reset()
+                    token_pool.wait_and_reset(
+                        cancel_checker=cancel_checker,
+                        on_tick=hooks.on_waiting_tick if hooks else None,
+                    )
                     tried_all_tokens = True
                 continue
 

@@ -32,7 +32,11 @@
             <p class="text-xs text-slate-400">Local AI Audiobook Generator</p>
           </div>
         </div>
-        <span class="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-400">Phase 2 — TTS</span>
+        <nav class="flex items-center gap-4">
+          <a href="/dashboard" class="text-sm text-slate-400 hover:text-white">Dashboard</a>
+          <a href="/settings" class="text-sm text-slate-400 hover:text-white">Settings</a>
+          <span class="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-400">Phase 3.5 — Tokens</span>
+        </nav>
       </div>
     </header>
 
@@ -41,7 +45,6 @@
     </main>
   </div>
 
-  <script src="/static/js/app.js" defer></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

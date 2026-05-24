@@ -9,6 +9,27 @@
 
 {% block content %}
 <div class="space-y-8">
+  <section
+    id="token-warning"
+    class="hidden rounded-2xl border border-amber-700/60 bg-amber-950/30 p-5 shadow-xl"
+    role="alert"
+  >
+    <div class="flex flex-wrap items-center justify-between gap-4">
+      <div>
+        <h2 class="text-lg font-semibold text-amber-200">No Gemini API tokens configured</h2>
+        <p class="mt-1 text-sm text-amber-100/80">
+          Add one or more API keys from Google AI Studio to generate audiobooks. The app rotates keys on quota limits.
+        </p>
+      </div>
+      <a
+        href="/settings"
+        class="rounded-lg bg-amber-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-amber-500"
+      >
+        Open settings
+      </a>
+    </div>
+  </section>
+
   <section id="upload-section" class="rounded-2xl border border-slate-800 bg-surface-light p-6 shadow-xl">
     <h2 class="mb-6 text-xl font-semibold text-white">New audiobook</h2>
 
@@ -190,27 +211,39 @@
   </div>
 
   <section class="rounded-2xl border border-slate-800 bg-surface-light p-6 shadow-xl">
-    <h2 class="mb-4 text-xl font-semibold text-white">Progress</h2>
-    <div id="progress-card" class="grid gap-4 sm:grid-cols-2">
-      <div class="rounded-xl bg-slate-900/60 p-4">
+    <h2 class="mb-4 text-xl font-semibold text-white">Generation progress</h2>
+    <div id="progress-card" class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div class="rounded-xl bg-slate-900/60 p-4 sm:col-span-2">
         <p class="text-xs uppercase tracking-wide text-slate-500">Status</p>
-        <p id="progress-status" class="mt-1 text-lg font-medium text-slate-300">—</p>
+        <p id="progress-status" class="mt-1 text-lg font-medium text-accent">—</p>
       </div>
       <div class="rounded-xl bg-slate-900/60 p-4">
-        <p class="text-xs uppercase tracking-wide text-slate-500">Current chunk</p>
+        <p class="text-xs uppercase tracking-wide text-slate-500">Progress</p>
+        <p id="progress-percent" class="mt-1 text-lg font-medium text-slate-300">—</p>
+      </div>
+      <div class="rounded-xl bg-slate-900/60 p-4">
+        <p class="text-xs uppercase tracking-wide text-slate-500">Chunk</p>
         <p id="progress-chunk" class="mt-1 text-lg font-medium text-slate-300">—</p>
-      </div>
-      <div class="rounded-xl bg-slate-900/60 p-4">
-        <p class="text-xs uppercase tracking-wide text-slate-500">Active project</p>
-        <p id="progress-project" class="mt-1 text-lg font-medium text-slate-300">—</p>
       </div>
       <div class="rounded-xl bg-slate-900/60 p-4">
         <p class="text-xs uppercase tracking-wide text-slate-500">Current token</p>
         <p id="progress-token" class="mt-1 text-lg font-medium text-slate-300">—</p>
       </div>
       <div class="rounded-xl bg-slate-900/60 p-4">
+        <p class="text-xs uppercase tracking-wide text-slate-500">Chunk size</p>
+        <p id="progress-chunk-size" class="mt-1 text-lg font-medium text-slate-300">—</p>
+      </div>
+      <div class="rounded-xl bg-slate-900/60 p-4">
         <p class="text-xs uppercase tracking-wide text-slate-500">ETA</p>
         <p id="progress-eta" class="mt-1 text-lg font-medium text-slate-300">—</p>
+      </div>
+      <div class="rounded-xl bg-slate-900/60 p-4 sm:col-span-2 lg:col-span-3">
+        <p class="text-xs uppercase tracking-wide text-slate-500">Active project</p>
+        <p id="progress-project" class="mt-1 text-sm font-medium text-slate-400">—</p>
+      </div>
+      <div class="rounded-xl bg-slate-900/60 p-4 sm:col-span-2 lg:col-span-3">
+        <p class="text-xs uppercase tracking-wide text-slate-500">Current chunk preview</p>
+        <p id="progress-chunk-preview" class="preview-persian mt-2 text-sm leading-relaxed text-slate-300" dir="rtl">—</p>
       </div>
     </div>
     <div class="mt-4 flex flex-wrap gap-3">
@@ -233,4 +266,8 @@
     <p id="generation-msg" class="mt-3 hidden text-sm text-slate-400"></p>
   </section>
 </div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="/static/js/app.js" defer></script>
 {% endblock %}

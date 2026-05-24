@@ -2,25 +2,35 @@
 
 from __future__ import annotations
 
-import json
 import logging
-import os
 import time
+from collections.abc import Callable
 from pathlib import Path
+
+from backend.services.token_config import load_enabled_tokens
 
 logger = logging.getLogger(__name__)
 
 
+class GenerationCancelled(Exception):
+    """Raised when the user cancels during a quota wait."""
+
+
 class TokenPool:
     def __init__(self, tokens_file: Path, wait_seconds: int = 45) -> None:
-        self._tokens = self._load_tokens(tokens_file)
+        self._tokens = load_enabled_tokens(tokens_file)
         self._wait_seconds = wait_seconds
         self._index = 0
         self._cycles = 0
+        self.quota_failovers = 0
 
     @property
     def total(self) -> int:
         return len(self._tokens)
+
+    @property
+    def wait_seconds(self) -> int:
+        return self._wait_seconds
 
     @property
     def current_index(self) -> int:
@@ -40,40 +50,32 @@ class TokenPool:
             return False
         if self._index + 1 < len(self._tokens):
             self._index += 1
-            logger.warning("Switching to token %s (%s/%s)", self.current_name(), self.current_index, self.total)
+            self.quota_failovers += 1
+            logger.warning(
+                "Switching to token %s (%s/%s)",
+                self.current_name(),
+                self.current_index,
+                self.total,
+            )
             return True
         return False
 
-    def wait_and_reset(self) -> None:
+    def wait_and_reset(
+        self,
+        *,
+        cancel_checker: Callable[[], bool] | None = None,
+        on_tick: Callable[[int], None] | None = None,
+    ) -> None:
         self._cycles += 1
         logger.warning(
             "All tokens exhausted — waiting %ss before retry (cycle %s)",
             self._wait_seconds,
             self._cycles,
         )
-        time.sleep(self._wait_seconds)
+        for remaining in range(self._wait_seconds, 0, -1):
+            if cancel_checker and cancel_checker():
+                raise GenerationCancelled("Generation cancelled during quota wait.")
+            if on_tick:
+                on_tick(remaining)
+            time.sleep(1)
         self._index = 0
-
-    @staticmethod
-    def _load_tokens(tokens_file: Path) -> list[dict[str, str]]:
-        tokens: list[dict[str, str]] = []
-
-        if tokens_file.exists():
-            raw = json.loads(tokens_file.read_text(encoding="utf-8"))
-            if isinstance(raw, list):
-                for item in raw:
-                    key = item.get("api_key") or item.get("key")
-                    if key:
-                        tokens.append(
-                            {
-                                "name": item.get("name") or item.get("id") or "token",
-                                "api_key": key,
-                            }
-                        )
-
-        if not tokens:
-            env_key = os.environ.get("GEMINI_API_KEY")
-            if env_key:
-                tokens.append({"name": "env", "api_key": env_key})
-
-        return tokens

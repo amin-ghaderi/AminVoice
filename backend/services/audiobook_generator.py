@@ -8,12 +8,28 @@ from pathlib import Path
 
 from backend.config.settings import Settings
 from backend.services.audio_merger import merge_wav_files
-from backend.services.gemini_tts import generate_audio
+from backend.services.gemini_tts import TtsProgressHooks, generate_audio
 from backend.services.generation_status import GenerationStatus, GenerationStatusStore
 from backend.services.text_splitter import split_text
-from backend.services.token_pool import TokenPool
+from backend.services.token_pool import GenerationCancelled, TokenPool
 
 logger = logging.getLogger(__name__)
+
+
+def scan_completed_chunks(audio_dir: Path, total_chunks: int) -> tuple[int, list[Path]]:
+    """
+    Return the next chunk index to generate (1-based) and paths of existing wav files.
+
+    Scans 0001.wav … sequentially; stops at the first gap.
+    """
+    completed: list[Path] = []
+    for index in range(1, total_chunks + 1):
+        path = audio_dir / f"{index:04d}.wav"
+        if path.exists() and path.stat().st_size > 0:
+            completed.append(path)
+            continue
+        return index, completed
+    return total_chunks + 1, completed
 
 
 class AudiobookGenerator:
@@ -29,6 +45,8 @@ class AudiobookGenerator:
     def run(self, intake_id: str, text: str, project_name: str) -> None:
         audio_dir = self._settings.temp_dir / "audio" / intake_id
         audio_dir.mkdir(parents=True, exist_ok=True)
+        output_dir = self._settings.outputs_dir / intake_id
+        output_path = output_dir / "final_audiobook.wav"
 
         chunks = split_text(text)
         if not chunks:
@@ -39,70 +57,183 @@ class AudiobookGenerator:
         status = GenerationStatus(
             intake_id=intake_id,
             status="generating",
+            status_label="Generating audiobook",
             total_chunks=len(chunks),
             total_tokens=token_pool.total,
             current_token_index=token_pool.current_index,
             eta="estimating...",
         )
+        self._sync_token_fields(status, token_pool)
         self._status_store.write(status)
 
-        chunk_paths: list[Path] = []
-        start_time = time.time()
-
-        for index, chunk in enumerate(chunks, start=1):
-            current = self._status_store.read(intake_id)
-            if current and current.cancel_requested:
-                status.status = "cancelled"
-                self._status_store.write(status)
-                logger.info("Generation cancelled: %s", intake_id)
-                return
-
-            wav_path = audio_dir / f"{index:04d}.wav"
-            self._generate_chunk_with_retry(chunk, wav_path, token_pool)
-            chunk_paths.append(wav_path)
-
-            elapsed = time.time() - start_time
-            status.current_chunk = index
-            status.current_token_index = token_pool.current_index
-            status.eta = self._estimate_eta(index, len(chunks), elapsed)
+        start_index, chunk_paths = scan_completed_chunks(audio_dir, len(chunks))
+        if start_index > 1:
+            logger.info(
+                "Resuming generation for %s at chunk %s/%s (%s already saved)",
+                intake_id,
+                start_index,
+                len(chunks),
+                len(chunk_paths),
+            )
+            status.current_chunk = len(chunk_paths)
+            status.status_label = f"Resuming at chunk {start_index}/{len(chunks)}"
             self._status_store.write(status)
 
-        output_path = self._settings.outputs_dir / f"{intake_id}_final_audiobook.wav"
+        start_time = time.time()
+
         try:
+            for index in range(start_index, len(chunks) + 1):
+                if self._is_cancelled(intake_id):
+                    status.status = "cancelled"
+                    status.status_label = "Generation cancelled"
+                    self._status_store.write(status)
+                    logger.info("Generation cancelled: %s", intake_id)
+                    return
+
+                chunk = chunks[index - 1]
+                wav_path = audio_dir / f"{index:04d}.wav"
+
+                status.status = "generating"
+                status.status_label = "Generating audiobook"
+                status.set_chunk_progress(index, chunk)
+                self._sync_token_fields(status, token_pool)
+                self._status_store.write(status)
+
+                logger.info("Generating chunk %s/%s (%s chars)", index, len(chunks), len(chunk))
+                self._generate_chunk_with_retry(
+                    intake_id,
+                    chunk,
+                    wav_path,
+                    token_pool,
+                    status,
+                )
+                chunk_paths.append(wav_path)
+
+                elapsed = time.time() - start_time
+                done = len(chunk_paths)
+                status.current_chunk = done
+                status.progress_percent = round((done / len(chunks)) * 100, 1)
+                self._sync_token_fields(status, token_pool)
+                status.eta = self._estimate_eta(done, len(chunks), elapsed)
+                self._status_store.write(status)
+
+            status.status = "merging"
+            status.status_label = "Merging final audio"
+            status.eta = "merging..."
+            self._status_store.write(status)
+            logger.info("Merging %s chunks into final audiobook", len(chunk_paths))
+
             merge_wav_files(chunk_paths, output_path)
+            logger.info("Merged final audio: %s", output_path)
+
+        except GenerationCancelled:
+            status.status = "cancelled"
+            status.status_label = "Generation cancelled"
+            self._status_store.write(status)
+            logger.info("Generation cancelled: %s", intake_id)
+            return
         except Exception as exc:
-            self._fail(intake_id, f"Merge failed: {exc}")
+            self._fail(intake_id, str(exc))
             return
 
         status.status = "completed"
+        status.status_label = "Audiobook ready"
         status.output_path = str(output_path)
+        status.progress_percent = 100.0
         status.eta = "done"
         self._status_store.write(status)
         logger.info("Audiobook complete: %s", output_path)
 
+    def _is_cancelled(self, intake_id: str) -> bool:
+        current = self._status_store.read(intake_id)
+        return bool(current and current.cancel_requested)
+
     def _generate_chunk_with_retry(
         self,
+        intake_id: str,
         chunk: str,
         wav_path: Path,
         token_pool: TokenPool,
+        status: GenerationStatus,
         *,
         per_chunk_attempts: int = 5,
     ) -> None:
+        hooks = TtsProgressHooks(
+            cancel_checker=lambda: self._is_cancelled(intake_id),
+            on_calling=lambda: self._set_status(
+                status,
+                status="generating",
+                status_label="Calling Gemini",
+            ),
+            on_received=lambda: self._set_status(
+                status,
+                status="generating",
+                status_label="Generating audiobook",
+            ),
+            on_rate_limited=lambda wait_s: self._set_status(
+                status,
+                status="waiting_quota",
+                status_label=f"Waiting for Gemini quota reset (~{wait_s}s)",
+                wait_seconds=wait_s,
+                **self._token_status_kwargs(token_pool),
+            ),
+            on_waiting_tick=lambda remaining: self._set_status(
+                status,
+                status="waiting_quota",
+                status_label=f"Waiting for Gemini quota reset (~{remaining}s)",
+                wait_seconds=remaining,
+                **self._token_status_kwargs(token_pool),
+            ),
+        )
+
         last_error: Exception | None = None
-        for _ in range(per_chunk_attempts):
+        for attempt in range(per_chunk_attempts):
+            if self._is_cancelled(intake_id):
+                raise GenerationCancelled("Cancelled before chunk retry.")
             try:
                 generate_audio(
                     chunk,
                     str(wav_path),
                     token_pool,
                     max_attempts=12,
+                    hooks=hooks,
                 )
+                self._sync_token_fields(status, token_pool)
+                self._status_store.write(status)
                 return
+            except GenerationCancelled:
+                raise
             except Exception as exc:
                 last_error = exc
-                logger.warning("Chunk failed (%s), retrying: %s", wav_path.name, exc)
+                logger.warning(
+                    "Chunk %s failed (attempt %s/%s): %s",
+                    wav_path.name,
+                    attempt + 1,
+                    per_chunk_attempts,
+                    exc,
+                )
                 time.sleep(2)
-        raise RuntimeError(f"Chunk failed after retries: {last_error}")
+        raise RuntimeError(f"Chunk {wav_path.name} failed after retries: {last_error}")
+
+    def _set_status(self, status: GenerationStatus, **fields) -> None:
+        for key, value in fields.items():
+            setattr(status, key, value)
+        self._status_store.write(status)
+
+    @staticmethod
+    def _token_status_kwargs(token_pool: TokenPool) -> dict:
+        return {
+            "current_token_index": token_pool.current_index,
+            "current_token_name": token_pool.current_name() if token_pool.total else "",
+            "quota_failovers": token_pool.quota_failovers,
+        }
+
+    @staticmethod
+    def _sync_token_fields(status: GenerationStatus, token_pool: TokenPool) -> None:
+        if token_pool.total:
+            status.current_token_index = token_pool.current_index
+            status.current_token_name = token_pool.current_name()
+        status.quota_failovers = token_pool.quota_failovers
 
     def _estimate_eta(self, done: int, total: int, elapsed: float) -> str:
         if done <= 0:
@@ -118,5 +249,6 @@ class AudiobookGenerator:
         logger.error("Generation failed for %s: %s", intake_id, message)
         status = self._status_store.read(intake_id) or GenerationStatus(intake_id=intake_id)
         status.status = "failed"
+        status.status_label = "Generation failed"
         status.error = message
         self._status_store.write(status)

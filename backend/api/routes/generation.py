@@ -1,4 +1,4 @@
-"""Audiobook generation endpoints (Phase 2 — simple sequential TTS)."""
+"""Audiobook generation endpoints (Phase 3 — sequential TTS)."""
 
 from __future__ import annotations
 
@@ -109,11 +109,16 @@ def generation_status(
     return GenerationStatusResponse(
         intake_id=status.intake_id,
         status=status.status,
+        status_label=status.status_label,
         current_chunk=status.current_chunk,
         total_chunks=status.total_chunks,
+        current_chunk_size=status.current_chunk_size,
+        current_chunk_preview=status.current_chunk_preview,
+        progress_percent=status.progress_percent,
         current_token_index=status.current_token_index,
         total_tokens=status.total_tokens,
         eta=status.eta,
+        wait_seconds=status.wait_seconds,
         output_path=status.output_path,
         error=status.error,
     )
@@ -140,6 +145,8 @@ def download_audiobook(
 
     path = Path(status.output_path) if status.output_path else None
     if path is None or not path.exists():
+        path = settings.outputs_dir / intake_id / "final_audiobook.wav"
+    if not path.exists():
         path = settings.outputs_dir / f"{intake_id}_final_audiobook.wav"
     if not path.exists():
         raise HTTPException(status_code=404, detail="Output file missing.")

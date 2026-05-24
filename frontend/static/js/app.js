@@ -1,6 +1,5 @@
 /**
- * Audiobook Generator — Phase 1: PDF upload & text preview.
- * TODO: chunking, TTS generation, retry system (wired via /continue placeholder).
+ * Audiobook Generator — PDF intake, chunk preview, sequential TTS generation.
  */
 
 (function () {
@@ -42,6 +41,9 @@
   const progressProject = document.getElementById("progress-project");
   const progressToken = document.getElementById("progress-token");
   const progressEta = document.getElementById("progress-eta");
+  const progressPercent = document.getElementById("progress-percent");
+  const progressChunkSize = document.getElementById("progress-chunk-size");
+  const progressChunkPreview = document.getElementById("progress-chunk-preview");
   const btnCancelGeneration = document.getElementById("btn-cancel-generation");
   const downloadAudiobook = document.getElementById("download-audiobook");
   const generationMsg = document.getElementById("generation-msg");
@@ -54,6 +56,7 @@
   const chunkStatAvg = document.getElementById("chunk-stat-avg");
   const chunkStatMin = document.getElementById("chunk-stat-min");
   const chunkStatMax = document.getElementById("chunk-stat-max");
+  const tokenWarning = document.getElementById("token-warning");
 
   let currentIntake = null;
   let isEditing = false;
@@ -241,8 +244,32 @@
     }
   }
 
+  function formatStatusLabel(data) {
+    if (data.status_label && data.status_label !== "—") {
+      return data.status_label;
+    }
+    if (data.status === "waiting_quota") {
+      const wait = data.wait_seconds || 45;
+      return "Waiting for Gemini quota reset (~" + wait + "s)";
+    }
+    if (data.status === "merging") return "Merging final audio";
+    if (data.status === "generating") return "Generating audiobook";
+    if (data.status === "completed") return "Audiobook ready";
+    if (data.status === "failed") return "Generation failed";
+    if (data.status === "cancelled" || data.status === "cancelling") {
+      return "Generation cancelled";
+    }
+    return data.status || "—";
+  }
+
   function updateProgressUI(data) {
-    if (progressStatus) progressStatus.textContent = data.status || "—";
+    if (progressStatus) {
+      progressStatus.textContent = formatStatusLabel(data);
+      progressStatus.classList.toggle("text-amber-300", data.status === "waiting_quota");
+      progressStatus.classList.toggle("text-accent", data.status === "generating" || data.status === "merging");
+      progressStatus.classList.toggle("text-emerald-400", data.status === "completed");
+      progressStatus.classList.toggle("text-red-400", data.status === "failed");
+    }
     if (progressChunk) {
       progressChunk.textContent =
         data.total_chunks > 0
@@ -257,6 +284,20 @@
         data.total_tokens > 0
           ? data.current_token_index + " / " + data.total_tokens
           : "—";
+    }
+    if (progressPercent) {
+      if (typeof data.progress_percent === "number" && data.total_chunks > 0) {
+        progressPercent.textContent = Math.round(data.progress_percent) + "%";
+      } else {
+        progressPercent.textContent = "—";
+      }
+    }
+    if (progressChunkSize) {
+      progressChunkSize.textContent =
+        data.current_chunk_size > 0 ? data.current_chunk_size + " chars" : "—";
+    }
+    if (progressChunkPreview) {
+      progressChunkPreview.textContent = data.current_chunk_preview || "—";
     }
     if (progressEta) progressEta.textContent = data.eta || "—";
   }
@@ -283,30 +324,46 @@
 
     updateProgressUI(data);
 
-    if (data.status === "completed") {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = setInterval(pollGenerationStatus, pollIntervalMs(data));
+    }
+
+    const terminal = ["completed", "failed", "cancelled"];
+    if (terminal.indexOf(data.status) >= 0) {
       stopPolling();
       if (btnCancelGeneration) btnCancelGeneration.classList.add("hidden");
-      if (downloadAudiobook && data.output_path) {
+    }
+
+    if (data.status === "completed") {
+      if (downloadAudiobook) {
         downloadAudiobook.classList.remove("hidden");
         downloadAudiobook.href =
           "/api/v1/pdf/" + currentIntake.intake_id + "/audiobook/download";
       }
-      showGenerationMessage("Audiobook ready: " + (data.output_path || "output saved"));
+      showGenerationMessage("Audiobook ready — download below.");
       return;
     }
 
     if (data.status === "failed") {
-      stopPolling();
-      if (btnCancelGeneration) btnCancelGeneration.classList.add("hidden");
       showGenerationMessage(data.error || "Generation failed.", true);
       return;
     }
 
     if (data.status === "cancelled") {
-      stopPolling();
-      if (btnCancelGeneration) btnCancelGeneration.classList.add("hidden");
       showGenerationMessage("Generation cancelled.");
     }
+  }
+
+  function pollIntervalMs(data) {
+    if (!data) return 2000;
+    if (data.status === "waiting_quota" || data.status === "generating") return 1000;
+    return 2000;
+  }
+
+  function schedulePoll() {
+    stopPolling();
+    pollTimer = setInterval(pollGenerationStatus, 1500);
   }
 
   function openChunkModal() {
@@ -399,6 +456,16 @@
   async function continueToGeneration() {
     if (!currentIntake) return;
 
+    const tokenCheck = await fetch("/api/v1/tokens");
+    const tokenData = await tokenCheck.json().catch(function () {
+      return {};
+    });
+    if (tokenCheck.ok && !tokenData.configured) {
+      showActionMessage("Add at least one Gemini API token in Settings before generating.", true);
+      if (tokenWarning) tokenWarning.classList.remove("hidden");
+      return;
+    }
+
     if (isEditing && previewEditor) {
       await saveEdits();
     }
@@ -421,17 +488,23 @@
       return;
     }
 
-    if (progressStatus) progressStatus.textContent = "Generating";
-    if (progressChunk) {
-      progressChunk.textContent = "0 / " + (payload.total_chunks || "?");
-    }
-    if (progressEta) progressEta.textContent = "estimating...";
+    updateProgressUI({
+      status: "generating",
+      status_label: "Starting generation…",
+      current_chunk: 0,
+      total_chunks: payload.total_chunks || 0,
+      current_token_index: 0,
+      total_tokens: 0,
+      current_chunk_size: 0,
+      current_chunk_preview: "",
+      progress_percent: 0,
+      eta: "estimating...",
+    });
 
     showActionMessage("Generating audiobook (" + payload.total_chunks + " chunks)…");
-    showGenerationMessage("Sequential TTS in progress…");
+    showGenerationMessage("Sequential TTS in progress — status updates every second.");
 
-    stopPolling();
-    pollTimer = setInterval(pollGenerationStatus, 2000);
+    schedulePoll();
     pollGenerationStatus();
   }
 
@@ -499,16 +572,24 @@
   const btnStart = document.getElementById("btn-start");
   if (btnStart) {
     btnStart.addEventListener("click", function () {
-      // TODO: TTS generation — start full pipeline when Phase 2 is ready
-      console.info("[TODO] Start generation");
+      if (currentIntake) continueToGeneration();
     });
   }
 
-  const btnResume = document.getElementById("btn-resume");
-  if (btnResume) {
-    btnResume.addEventListener("click", function () {
-      // TODO: retry system — resume previous job
-      console.info("[TODO] Resume previous job");
-    });
+  async function checkTokenConfiguration() {
+    try {
+      const response = await fetch("/api/v1/tokens");
+      const data = await response.json().catch(function () {
+        return {};
+      });
+      if (!response.ok) return;
+      if (tokenWarning) {
+        tokenWarning.classList.toggle("hidden", Boolean(data.configured));
+      }
+    } catch (_err) {
+      /* ignore */
+    }
   }
+
+  checkTokenConfiguration();
 })();
