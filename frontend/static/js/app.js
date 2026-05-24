@@ -35,6 +35,8 @@
   const btnSaveEdit = document.getElementById("btn-save-edit");
   const btnCancel = document.getElementById("btn-cancel");
   const previewActionMsg = document.getElementById("preview-action-msg");
+  const repairBadge = document.getElementById("repair-badge");
+  const repairFixCount = document.getElementById("repair-fix-count");
 
   let currentIntake = null;
   let isEditing = false;
@@ -104,6 +106,11 @@
     if (previewEditor) previewEditor.value = data.full_text;
     if (previewSection) previewSection.classList.remove("hidden");
     if (previewActionMsg) previewActionMsg.classList.add("hidden");
+    if (repairBadge && repairFixCount) {
+      const count = data.repair_fix_count || 0;
+      repairFixCount.textContent = String(count);
+      repairBadge.classList.toggle("hidden", count === 0);
+    }
     exitEditMode();
   }
 
@@ -114,6 +121,7 @@
     if (previewEditor) previewEditor.value = "";
     if (uploadHint) uploadHint.textContent = "Click to select a Persian PDF";
     if (pdfInput) pdfInput.value = "";
+    if (repairBadge) repairBadge.classList.add("hidden");
     exitEditMode();
   }
 

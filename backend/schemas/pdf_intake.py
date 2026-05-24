@@ -17,6 +17,8 @@ class PdfUploadResponse(BaseModel):
     pages: list[PageTextSchema]
     full_text: str
     preview_text: str
+    repair_applied: bool = False
+    repair_fix_count: int = 0
 
 
 class PdfTextUpdateRequest(BaseModel):

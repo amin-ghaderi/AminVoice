@@ -96,4 +96,6 @@ def _to_response(payload) -> PdfUploadResponse:
         pages=[PageTextSchema(**p) for p in payload.pages],
         full_text=payload.full_text,
         preview_text=payload.preview_text,
+        repair_applied=payload.repair_applied,
+        repair_fix_count=payload.repair_fix_count,
     )
