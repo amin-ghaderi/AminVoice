@@ -108,6 +108,16 @@ python prototypes/ai_studio_nonstream.py
 | `/health` | API health check |
 | `/docs` | OpenAPI docs (FastAPI) |
 
+## PDF extraction benchmark (diagnostic)
+
+Compare extractors on a Persian PDF page:
+
+```bash
+python prototypes/pdf_extraction_compare.py
+```
+
+Edit `PDF_PATH` and `PAGE_NUMBERS` at the top of that script. Outputs go to `storage/debug/pdf_compare/`.
+
 ## Phase 1 — PDF intake
 
 Upload a Persian PDF on the dashboard (`/dashboard`). The app extracts text, applies conservative cleaning, and shows a **page-by-page preview** before generation.
