@@ -1,0 +1,107 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard — {{ app_name }}{% endblock %}
+
+{% block content %}
+<div class="space-y-8">
+  <section class="rounded-2xl border border-slate-800 bg-surface-light p-6 shadow-xl">
+    <h2 class="mb-6 text-xl font-semibold text-white">New audiobook</h2>
+
+    <form id="generation-form" class="space-y-6" onsubmit="return false;">
+      <!-- Upload PDF -->
+      <div>
+        <label class="mb-2 block text-sm font-medium text-slate-300">Source document</label>
+        <label
+          for="pdf-upload"
+          class="flex cursor-pointer flex-col items-center justify-center rounded-xl border-2 border-dashed border-slate-600 bg-slate-900/50 px-6 py-10 transition hover:border-accent hover:bg-slate-900"
+        >
+          <svg class="mb-3 h-10 w-10 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12" />
+          </svg>
+          <span class="text-sm font-medium text-slate-200">Upload PDF</span>
+          <span class="mt-1 text-xs text-slate-500">Click to select a file (not wired yet)</span>
+          <input id="pdf-upload" name="pdf" type="file" accept=".pdf" class="sr-only" disabled />
+        </label>
+      </div>
+
+      <!-- Chunk duration -->
+      <div>
+        <label for="chunk-duration" class="mb-2 block text-sm font-medium text-slate-300">Chunk duration</label>
+        <select
+          id="chunk-duration"
+          name="chunk_duration"
+          class="w-full max-w-xs rounded-lg border border-slate-600 bg-slate-900 px-4 py-2.5 text-sm text-slate-100 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
+          disabled
+        >
+          <option value="2">2 minutes</option>
+          <option value="3">3 minutes</option>
+          <option value="4" selected>4 minutes (default)</option>
+          <option value="5">5 minutes</option>
+          <option value="6">6 minutes</option>
+        </select>
+      </div>
+
+      <!-- Options -->
+      <fieldset class="space-y-3">
+        <legend class="text-sm font-medium text-slate-300">Generation options</legend>
+        <label class="flex cursor-not-allowed items-center gap-3 text-sm text-slate-400">
+          <input type="checkbox" name="preview_chunks" class="h-4 w-4 rounded border-slate-600 bg-slate-900 text-accent" disabled />
+          Preview first chunks
+        </label>
+        <label class="flex cursor-not-allowed items-center gap-3 text-sm text-slate-400">
+          <input type="checkbox" name="trusted_mode" class="h-4 w-4 rounded border-slate-600 bg-slate-900 text-accent" disabled />
+          Trusted mode
+        </label>
+        <label class="flex cursor-not-allowed items-center gap-3 text-sm text-slate-400">
+          <input type="checkbox" name="auto_continue" class="h-4 w-4 rounded border-slate-600 bg-slate-900 text-accent" disabled />
+          Auto continue
+        </label>
+      </fieldset>
+
+      <!-- Actions -->
+      <div class="flex flex-wrap gap-3 pt-2">
+        <button
+          type="button"
+          id="btn-start"
+          class="rounded-lg bg-accent px-5 py-2.5 text-sm font-semibold text-white opacity-60 cursor-not-allowed"
+          disabled
+        >
+          Start generation
+        </button>
+        <button
+          type="button"
+          id="btn-resume"
+          class="rounded-lg border border-slate-600 bg-slate-900 px-5 py-2.5 text-sm font-semibold text-slate-300 opacity-60 cursor-not-allowed"
+          disabled
+        >
+          Resume previous job
+        </button>
+      </div>
+    </form>
+  </section>
+
+  <!-- Progress placeholder -->
+  <section class="rounded-2xl border border-slate-800 bg-surface-light p-6 shadow-xl">
+    <h2 class="mb-4 text-xl font-semibold text-white">Progress</h2>
+    <div id="progress-card" class="grid gap-4 sm:grid-cols-2">
+      <div class="rounded-xl bg-slate-900/60 p-4">
+        <p class="text-xs uppercase tracking-wide text-slate-500">Status</p>
+        <p id="progress-status" class="mt-1 text-lg font-medium text-slate-300">—</p>
+      </div>
+      <div class="rounded-xl bg-slate-900/60 p-4">
+        <p class="text-xs uppercase tracking-wide text-slate-500">Current chunk</p>
+        <p id="progress-chunk" class="mt-1 text-lg font-medium text-slate-300">—</p>
+      </div>
+      <div class="rounded-xl bg-slate-900/60 p-4">
+        <p class="text-xs uppercase tracking-wide text-slate-500">Active project</p>
+        <p id="progress-project" class="mt-1 text-lg font-medium text-slate-300">—</p>
+      </div>
+      <div class="rounded-xl bg-slate-900/60 p-4">
+        <p class="text-xs uppercase tracking-wide text-slate-500">ETA</p>
+        <p id="progress-eta" class="mt-1 text-lg font-medium text-slate-300">—</p>
+      </div>
+    </div>
+    <p class="mt-4 text-xs text-slate-500">Progress updates will appear here when generation is implemented.</p>
+  </section>
+</div>
+{% endblock %}

@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full bg-slate-950">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}{{ app_name }}{% endblock %}</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            surface: { DEFAULT: '#0f172a', light: '#1e293b' },
+            accent: { DEFAULT: '#6366f1', hover: '#818cf8' },
+          },
+        },
+      },
+    };
+  </script>
+  {% block head %}{% endblock %}
+</head>
+<body class="h-full text-slate-100 antialiased">
+  <div class="min-h-full">
+    <header class="border-b border-slate-800 bg-slate-900/80 backdrop-blur">
+      <div class="mx-auto flex max-w-5xl items-center justify-between px-4 py-4 sm:px-6">
+        <div class="flex items-center gap-3">
+          <div class="flex h-9 w-9 items-center justify-center rounded-lg bg-accent font-semibold text-white">
+            AG
+          </div>
+          <div>
+            <h1 class="text-lg font-semibold tracking-tight">{{ app_name }}</h1>
+            <p class="text-xs text-slate-400">Local AI Audiobook Generator</p>
+          </div>
+        </div>
+        <span class="rounded-full bg-slate-800 px-3 py-1 text-xs text-slate-400">Foundation build</span>
+      </div>
+    </header>
+
+    <main class="mx-auto max-w-5xl px-4 py-8 sm:px-6">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  <script src="/static/js/app.js" defer></script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

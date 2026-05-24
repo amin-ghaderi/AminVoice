@@ -1,0 +1,46 @@
+# Environment
+.env
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+.eggs/
+dist/
+build/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+
+# Storage (runtime artifacts)
+storage/jobs/*
+storage/chunks/*
+storage/outputs/*
+storage/temp/*
+storage/logs/*
+!storage/**/.gitkeep
+
+# Uploads
+frontend/static/uploads/*
+!frontend/static/uploads/.gitkeep
+
+# Tokens (secrets)
+tokens/projects.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Test / coverage
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Database (local dev copy optional — keep example path in repo)
+*.db-journal
