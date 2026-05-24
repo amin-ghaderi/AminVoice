@@ -108,10 +108,23 @@ python prototypes/ai_studio_nonstream.py
 | `/health` | API health check |
 | `/docs` | OpenAPI docs (FastAPI) |
 
+## Phase 1 — PDF intake
+
+Upload a Persian PDF on the dashboard (`/dashboard`). The app extracts text, applies conservative cleaning, and shows a **page-by-page preview** before generation.
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/v1/pdf/upload` | POST | Upload PDF (`multipart/form-data`, field `file`) |
+| `/api/v1/pdf/{id}/text` | PUT | Save edited full text |
+| `/api/v1/pdf/{id}/continue` | POST | Placeholder — chunking / TTS not implemented |
+| `/api/v1/pdf/{id}` | DELETE | Cancel intake session |
+
+Services: `backend/services/pdf_extractor.py` (PyMuPDF), `backend/services/text_cleaner.py`.
+
 ## Running tests
 
 ```bash
-pip install pytest httpx
+pip install -r backend/requirements.txt
 pytest tests/ -v
 ```
 
