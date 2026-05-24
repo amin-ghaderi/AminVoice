@@ -83,14 +83,14 @@ class PersianTextRepairService:
         current, glyph_changes = self._apply_glyph_replacements(current)
         changes.extend(glyph_changes)
 
+        current, digit_changes = self._repair_fragmented_years(current)
+        changes.extend(digit_changes)
+
         current, line_changes = self._repair_broken_lines(current)
         changes.extend(line_changes)
 
         current, para_changes = self._normalize_paragraphs(current)
         changes.extend(para_changes)
-
-        current, digit_changes = self._repair_fragmented_years(current)
-        changes.extend(digit_changes)
 
         return RepairResult(text=current, changes=changes)
 
@@ -142,7 +142,7 @@ class PersianTextRepairService:
             current = lines[i]
             if i + 1 < len(lines) and self._should_join_broken_word(current, lines[i + 1]):
                 nxt = lines[i + 1]
-                joined = self._join_broken_pair(current, nxt)
+                joined = self._join_broken_word_lines(current, nxt)
                 changes.append(
                     RepairChange(
                         kind="JOINED_LINE",
@@ -199,10 +199,9 @@ class PersianTextRepairService:
         def line_merge(match: re.Match[str]) -> str:
             first = match.group(1)
             second = match.group(2)
-            combined = self._digits_to_western(first + second)
-            if not self._is_plausible_year(combined):
+            persian = self._normalize_year_digits(first + second)
+            if persian is None:
                 return match.group(0)
-            persian = self._digits_to_persian(combined)
             changes.append(
                 RepairChange(
                     kind="DIGIT_REPAIR",
@@ -218,14 +217,34 @@ class PersianTextRepairService:
         )
         text = pattern.sub(line_merge, text)
 
+        # Year alone on the next line after context (e.g. "در سال\n٩٧٩١").
+        def year_after_context(match: re.Match[str]) -> str:
+            prefix = match.group(1)
+            digits = match.group(2)
+            persian = self._normalize_year_digits(digits)
+            if persian is None:
+                return match.group(0)
+            changes.append(
+                RepairChange(
+                    kind="DIGIT_REPAIR",
+                    before=f"{prefix}\n{digits}",
+                    after=f"{prefix} {persian}",
+                )
+            )
+            return f"{prefix} {persian}"
+
+        context_year = re.compile(
+            r"(سال|در سال|سال )\s*\n\s*([۰-۹0-9]{3,4})\s*(?=\n|$)",
+        )
+        text = context_year.sub(year_after_context, text)
+
         # Same-line fragmented year: "٩\n" already handled; inline "٩ ٧٩١" → careful
         inline = re.compile(r"([۰-۹0-9])\s+([۰-۹0-9]{2,3})(?![۰-۹0-9])")
 
         def inline_merge(match: re.Match[str]) -> str:
-            combined = self._digits_to_western(match.group(1) + match.group(2))
-            if not self._is_plausible_year(combined):
+            persian = self._normalize_year_digits(match.group(1) + match.group(2))
+            if persian is None:
                 return match.group(0)
-            persian = self._digits_to_persian(combined)
             changes.append(
                 RepairChange(
                     kind="DIGIT_REPAIR",
@@ -249,13 +268,30 @@ class PersianTextRepairService:
             return False
         if u.startswith("--- Page"):
             return False
+        if " " in low:
+            return False
+        if _DIGIT_CHAR.fullmatch(low) or _DIGIT_CHAR.search(low):
+            return False
+        if _DIGIT_CHAR.search(u.split()[-1]):
+            return False
         if not self._is_persian_heavy(u) or not self._is_persian_heavy(low):
             return False
-        if len(u) > 48 or len(low) > 48:
+        if len(low) > 24:
             return False
-        if _LATIN_WORD.search(u) and _LATIN_WORD.search(low):
+        last_token = u.split()[-1]
+        if len(last_token) > 32:
             return False
-        return self._ends_with_letter(u) and self._starts_with_letter(low)
+        return self._ends_with_letter(last_token) and self._starts_with_letter(low)
+
+    def _join_broken_word_lines(self, upper: str, lower: str) -> str:
+        u = upper.rstrip()
+        low = lower.lstrip()
+        parts = u.split()
+        if len(parts) > 1:
+            prefix = " ".join(parts[:-1])
+            combined_word = parts[-1] + low
+            return f"{prefix} {combined_word}"
+        return u + low
 
     def _should_join_paragraph_line(self, prev: str, cur: str) -> bool:
         if _SENTENCE_END.search(prev):
@@ -267,14 +303,6 @@ class PersianTextRepairService:
         if len(prev) > 120 or len(cur) > 120:
             return False
         return True
-
-    def _join_broken_pair(self, upper: str, lower: str) -> str:
-        u = upper.rstrip()
-        low = lower.lstrip()
-        if self._ends_with_letter(u) and self._starts_with_letter(low):
-            if not u.endswith(" ") and not low.startswith(" "):
-                return u + low
-        return f"{u} {low}"
 
     @staticmethod
     def _is_persian_heavy(text: str) -> bool:
@@ -306,8 +334,17 @@ class PersianTextRepairService:
         return western.translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹"))
 
     @staticmethod
+    def _normalize_year_digits(digits: str) -> str | None:
+        western = PersianTextRepairService._digits_to_western(digits)
+        if len(western) != 4 or not western.isdigit():
+            return None
+        candidates = [western, western[::-1]]
+        for candidate in candidates:
+            year = int(candidate)
+            if (1300 <= year <= 1410) or (1900 <= year <= 2030):
+                return PersianTextRepairService._digits_to_persian(candidate)
+        return None
+
+    @staticmethod
     def _is_plausible_year(combined: str) -> bool:
-        if len(combined) != 4 or not combined.isdigit():
-            return False
-        year = int(combined)
-        return (1300 <= year <= 1410) or (1900 <= year <= 2030)
+        return PersianTextRepairService._normalize_year_digits(combined) is not None

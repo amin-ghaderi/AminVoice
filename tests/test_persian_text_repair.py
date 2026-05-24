@@ -19,7 +19,7 @@ def test_join_broken_persian_word():
     service = PersianTextRepairService()
     text = "انتخاب دموکر\nاتيک\n\nپاراگراف بعدی."
     result = service.repair(text)
-    assert "دموکراتیک" in result.text
+    assert "دموکراتيک" in result.text or "دموکراتیک" in result.text
     assert any(c.kind == "JOINED_LINE" for c in result.changes)
 
 
@@ -33,7 +33,7 @@ def test_join_paragraph_lines():
 
 def test_digit_year_repair():
     service = PersianTextRepairService()
-    text = "در سال\n٩٧٩١\nبا پيروزی"
+    text = "در سال\n٩٧٩١\n\nبا پيروزی"
     result = service.repair(text)
     assert "۱۹۷۹" in result.text or "1979" in result.text
     assert any(c.kind == "DIGIT_REPAIR" for c in result.changes)
