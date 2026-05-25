@@ -1,0 +1,123 @@
+/* Generation progress — live, non-blocking feel */
+
+.gen-panel-active {
+  border-color: rgba(99, 102, 241, 0.35);
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.12);
+}
+
+.gen-live-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.gen-pulse-dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 9999px;
+  background: #818cf8;
+  flex-shrink: 0;
+  animation: gen-pulse 1.4s ease-in-out infinite;
+}
+
+.gen-pulse-dot.is-idle {
+  background: #64748b;
+  animation: none;
+}
+
+.gen-pulse-dot.is-waiting {
+  background: #fbbf24;
+  animation: gen-pulse 0.9s ease-in-out infinite;
+}
+
+.gen-pulse-dot.is-done {
+  background: #34d399;
+  animation: none;
+}
+
+@keyframes gen-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.35);
+    opacity: 0.55;
+  }
+}
+
+.gen-activity-label {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: #c7d2fe;
+}
+
+.gen-activity-label.is-waiting {
+  color: #fcd34d;
+}
+
+.gen-activity-label.is-done {
+  color: #6ee7b7;
+}
+
+.gen-dots::after {
+  content: "";
+  animation: gen-dots 1.2s steps(4, end) infinite;
+}
+
+@keyframes gen-dots {
+  0% {
+    content: "";
+  }
+  25% {
+    content: ".";
+  }
+  50% {
+    content: "..";
+  }
+  75%,
+  100% {
+    content: "...";
+  }
+}
+
+.gen-progress-track {
+  height: 0.5rem;
+  border-radius: 9999px;
+  background: rgba(30, 41, 59, 0.9);
+  overflow: hidden;
+}
+
+.gen-progress-fill {
+  height: 100%;
+  border-radius: 9999px;
+  background: linear-gradient(90deg, #4f46e5, #818cf8, #a5b4fc);
+  background-size: 200% 100%;
+  width: 0%;
+  transition: width 0.6s ease;
+  animation: gen-bar-shimmer 2.2s linear infinite;
+}
+
+.gen-progress-fill.is-complete {
+  animation: none;
+  background: #34d399;
+}
+
+@keyframes gen-bar-shimmer {
+  0% {
+    background-position: 100% 0;
+  }
+  100% {
+    background-position: -100% 0;
+  }
+}
+
+.gen-last-updated {
+  font-size: 0.75rem;
+  color: #64748b;
+}
+
+.gen-last-updated.is-stale {
+  color: #fbbf24;
+}

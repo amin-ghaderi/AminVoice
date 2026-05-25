@@ -7,8 +7,9 @@ import logging
 from pathlib import Path
 
 from backend.services.text_splitter import (
-    SOFT_MIN_CHARS,
     SOFT_MAX_CHARS,
+    VALIDATION_MAX_CHARS,
+    VALIDATION_MIN_CHARS,
     compute_chunking_stats,
     split_text,
 )
@@ -16,8 +17,8 @@ from backend.services.text_splitter import (
 logger = logging.getLogger(__name__)
 
 PREVIEW_SNIPPET_CHARS = 300
-SMALL_CHUNK_THRESHOLD = SOFT_MIN_CHARS
-LARGE_CHUNK_THRESHOLD = 2500
+SMALL_CHUNK_THRESHOLD = VALIDATION_MIN_CHARS
+LARGE_CHUNK_THRESHOLD = VALIDATION_MAX_CHARS
 DEFAULT_MAX_CHARS = SOFT_MAX_CHARS
 
 

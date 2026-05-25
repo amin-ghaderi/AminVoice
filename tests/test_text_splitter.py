@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from backend.services.text_splitter import (
     HARD_MAX_CHARS,
-    SOFT_MIN_CHARS,
-    SOFT_MAX_CHARS,
+    VALIDATION_MAX_CHARS,
+    VALIDATION_MIN_CHARS,
     compute_chunking_stats,
     split_text,
 )
@@ -68,3 +68,31 @@ def test_legacy_max_chars_override():
     chunks = split_text(long, max_chars=800)
     assert chunks
     assert max(len(c) for c in chunks) <= HARD_MAX_CHARS
+
+
+def test_validation_no_empty_chunks():
+    chunks = split_text("جمله اول. " * 50 + "\n\n" + "جمله دوم. " * 50)
+    assert all(chunk.strip() for chunk in chunks)
+
+
+def test_validation_splits_over_max_at_sentences():
+    body = "بخش. " * 400
+    chunks = split_text(body)
+    assert all(len(c) <= VALIDATION_MAX_CHARS or "." in c for c in chunks)
+    assert max(len(c) for c in chunks) <= VALIDATION_MAX_CHARS + 50
+
+
+def test_validation_merges_tiny_middle_chunks():
+    a = "جمله اول کامل. " * 25
+    b = "کوتاه."
+    c = "جمله سوم کامل. " * 25
+    chunks = split_text(a + "\n\n" + b + "\n\n" + c)
+    for chunk in chunks[:-1]:
+        assert len(chunk) >= VALIDATION_MIN_CHARS or len(chunks) == 1
+
+
+def test_validation_report_counts():
+    chunks = split_text("جمله. " * 300)
+    stats = compute_chunking_stats(chunks)
+    assert stats.count_small_chunks == sum(1 for c in chunks if len(c) < VALIDATION_MIN_CHARS)
+    assert stats.count_large_chunks == sum(1 for c in chunks if len(c) > VALIDATION_MAX_CHARS)

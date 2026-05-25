@@ -36,6 +36,13 @@
   const previewActionMsg = document.getElementById("preview-action-msg");
   const repairBadge = document.getElementById("repair-badge");
   const repairFixCount = document.getElementById("repair-fix-count");
+  const generationProgressSection = document.getElementById("generation-progress-section");
+  const progressActivityText = document.getElementById("progress-activity-text");
+  const progressActivityDots = document.getElementById("progress-activity-dots");
+  const progressActivity = document.getElementById("progress-activity");
+  const progressPulseDot = document.getElementById("progress-pulse-dot");
+  const progressBarFill = document.getElementById("progress-bar-fill");
+  const progressLastUpdated = document.getElementById("progress-last-updated");
   const progressStatus = document.getElementById("progress-status");
   const progressChunk = document.getElementById("progress-chunk");
   const progressProject = document.getElementById("progress-project");
@@ -61,6 +68,22 @@
   let currentIntake = null;
   let isEditing = false;
   let pollTimer = null;
+  let heartbeatTimer = null;
+  let generationActive = false;
+  let lastPollSuccessAt = 0;
+  let lastGoodStatus = null;
+  let rotateIndex = 0;
+  let pollInFlight = false;
+
+  const ROTATING_ACTIVITY = [
+    "Processing audio…",
+    "Enhancing narration…",
+    "Preparing next segment…",
+    "Optimizing voice engine…",
+  ];
+
+  const TERMINAL_STATUSES = ["completed", "failed", "cancelled"];
+  const ACTIVE_STATUSES = ["generating", "waiting_quota", "merging", "cancelling"];
 
   function shouldSkipPreview() {
     return localStorage.getItem(STORAGE_SKIP_PREVIEW) === "true";
@@ -237,39 +260,136 @@
     showActionMessage("Edits saved.");
   }
 
-  function stopPolling() {
+  function clearPollTimers() {
     if (pollTimer) {
       clearInterval(pollTimer);
       pollTimer = null;
     }
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
   }
 
-  function formatStatusLabel(data) {
-    if (data.status_label && data.status_label !== "—") {
-      return data.status_label;
+  function stopPolling() {
+    clearPollTimers();
+    generationActive = false;
+    pollInFlight = false;
+    if (generationProgressSection) {
+      generationProgressSection.classList.remove("gen-panel-active");
     }
-    if (data.status === "waiting_quota") {
-      const wait = data.wait_seconds || 45;
-      return "Waiting for Gemini quota reset (~" + wait + "s)";
+  }
+
+  function startGenerationUX() {
+    generationActive = true;
+    rotateIndex = 0;
+    lastPollSuccessAt = Date.now();
+    lastGoodStatus = null;
+    if (generationProgressSection) {
+      generationProgressSection.classList.add("gen-panel-active");
     }
-    if (data.status === "merging") return "Merging final audio";
-    if (data.status === "generating") return "Generating audiobook";
-    if (data.status === "completed") return "Audiobook ready";
-    if (data.status === "failed") return "Generation failed";
-    if (data.status === "cancelled" || data.status === "cancelling") {
-      return "Generation cancelled";
+    clearPollTimers();
+    pollTimer = setInterval(pollGenerationStatus, 1200);
+    heartbeatTimer = setInterval(tickHeartbeat, 1000);
+    tickHeartbeat();
+  }
+
+  function mapSemanticActivity(data, rotation) {
+    const status = data.status || "";
+    if (status === "merging") return "Finalizing audiobook…";
+    if (status === "completed") return "Your audiobook is ready";
+    if (status === "failed") return "We could not finish this audiobook";
+    if (status === "cancelled" || status === "cancelling") {
+      return "Stopping after the current segment…";
     }
-    return data.status || "—";
+    if (status === "waiting_quota") {
+      return ROTATING_ACTIVITY[rotation % ROTATING_ACTIVITY.length];
+    }
+    if (status === "generating") {
+      if (!data.current_chunk) return "Preparing audio segments…";
+      if (rotation % 5 === 0) return "Generating narration…";
+      if (rotation % 5 === 1) return "Optimizing voice output…";
+      return ROTATING_ACTIVITY[rotation % ROTATING_ACTIVITY.length];
+    }
+    return "Preparing audio segments…";
+  }
+
+  function formatEtaFriendly(eta) {
+    if (!eta || eta === "—") return "Calculating…";
+    if (eta === "estimating...") return "Calculating time remaining…";
+    if (eta === "merging...") return "Almost done…";
+    if (eta === "done") return "Complete";
+    if (eta.indexOf("~") === 0) {
+      return "About " + eta.slice(1).trim() + " left";
+    }
+    return eta;
+  }
+
+  function computeProgressPercent(data) {
+    if (typeof data.progress_percent === "number" && data.progress_percent > 0) {
+      return Math.min(100, Math.round(data.progress_percent));
+    }
+    if (data.total_chunks > 0 && data.current_chunk > 0) {
+      return Math.min(100, Math.round((data.current_chunk / data.total_chunks) * 100));
+    }
+    return 0;
+  }
+
+  function setPulseState(status) {
+    if (!progressPulseDot) return;
+    progressPulseDot.classList.remove("is-idle", "is-waiting", "is-done");
+    if (status === "completed") {
+      progressPulseDot.classList.add("is-done");
+      return;
+    }
+    if (status === "failed" || status === "cancelled") {
+      progressPulseDot.classList.add("is-idle");
+      return;
+    }
+    if (status === "waiting_quota") {
+      progressPulseDot.classList.add("is-waiting");
+      return;
+    }
+    if (ACTIVE_STATUSES.indexOf(status) >= 0) {
+      return;
+    }
+    progressPulseDot.classList.add("is-idle");
+  }
+
+  function updateActivityPresentation(data, rotation) {
+    const label = mapSemanticActivity(data, rotation);
+    const showDots = ACTIVE_STATUSES.indexOf(data.status) >= 0;
+
+    if (progressActivityText) progressActivityText.textContent = label;
+    if (progressActivityDots) {
+      progressActivityDots.classList.toggle("hidden", !showDots);
+      if (showDots) {
+        progressActivityDots.textContent = ".".repeat((rotation % 3) + 1);
+      } else {
+        progressActivityDots.textContent = "";
+      }
+    }
+    if (progressActivity) {
+      progressActivity.classList.toggle("is-waiting", data.status === "waiting_quota");
+      progressActivity.classList.toggle("is-done", data.status === "completed");
+    }
+    setPulseState(data.status);
+    if (progressStatus) progressStatus.textContent = label;
   }
 
   function updateProgressUI(data) {
-    if (progressStatus) {
-      progressStatus.textContent = formatStatusLabel(data);
-      progressStatus.classList.toggle("text-amber-300", data.status === "waiting_quota");
-      progressStatus.classList.toggle("text-accent", data.status === "generating" || data.status === "merging");
-      progressStatus.classList.toggle("text-emerald-400", data.status === "completed");
-      progressStatus.classList.toggle("text-red-400", data.status === "failed");
+    const percent = computeProgressPercent(data);
+    updateActivityPresentation(data, rotateIndex);
+
+    if (progressBarFill) {
+      progressBarFill.style.width = percent + "%";
+      progressBarFill.classList.toggle("is-complete", data.status === "completed");
+      const track = progressBarFill.parentElement;
+      if (track) {
+        track.setAttribute("aria-valuenow", String(percent));
+      }
     }
+
     if (progressChunk) {
       progressChunk.textContent =
         data.total_chunks > 0
@@ -286,11 +406,7 @@
           : "—";
     }
     if (progressPercent) {
-      if (typeof data.progress_percent === "number" && data.total_chunks > 0) {
-        progressPercent.textContent = Math.round(data.progress_percent) + "%";
-      } else {
-        progressPercent.textContent = "—";
-      }
+      progressPercent.textContent = percent > 0 ? percent + "%" : "—";
     }
     if (progressChunkSize) {
       progressChunkSize.textContent =
@@ -299,7 +415,49 @@
     if (progressChunkPreview) {
       progressChunkPreview.textContent = data.current_chunk_preview || "—";
     }
-    if (progressEta) progressEta.textContent = data.eta || "—";
+    if (progressEta) {
+      progressEta.textContent = formatEtaFriendly(data.eta);
+    }
+  }
+
+  function updateLastUpdatedLabel() {
+    if (!progressLastUpdated) return;
+    if (!generationActive) {
+      progressLastUpdated.textContent = "Last updated: —";
+      progressLastUpdated.classList.remove("is-stale");
+      return;
+    }
+
+    if (!lastPollSuccessAt) {
+      progressLastUpdated.textContent = "Syncing with server…";
+      progressLastUpdated.classList.add("is-stale");
+      return;
+    }
+
+    const seconds = Math.max(0, Math.floor((Date.now() - lastPollSuccessAt) / 1000));
+    if (seconds > 10) {
+      progressLastUpdated.textContent = "Syncing with server…";
+      progressLastUpdated.classList.add("is-stale");
+      return;
+    }
+
+    progressLastUpdated.textContent =
+      seconds <= 1 ? "Last updated: just now" : "Last updated: " + seconds + "s ago";
+    progressLastUpdated.classList.remove("is-stale");
+  }
+
+  function tickHeartbeat() {
+    if (!generationActive) return;
+    rotateIndex += 1;
+    updateLastUpdatedLabel();
+    if (lastGoodStatus) {
+      updateActivityPresentation(lastGoodStatus, rotateIndex);
+    } else {
+      updateActivityPresentation(
+        { status: "generating", current_chunk: 0, total_chunks: 0 },
+        rotateIndex
+      );
+    }
   }
 
   function showGenerationMessage(msg, isError) {
@@ -312,58 +470,68 @@
   }
 
   async function pollGenerationStatus() {
-    if (!currentIntake) return;
-    const response = await fetch(
-      "/api/v1/pdf/" + currentIntake.intake_id + "/generation/status"
-    );
-    if (response.status === 404) return;
-    const data = await response.json().catch(function () {
-      return {};
-    });
-    if (!response.ok) return;
+    if (!currentIntake || !generationActive) return;
+    if (pollInFlight) return;
 
-    updateProgressUI(data);
+    pollInFlight = true;
+    try {
+      const response = await fetch(
+        "/api/v1/pdf/" + currentIntake.intake_id + "/generation/status"
+      );
 
-    if (pollTimer) {
-      clearInterval(pollTimer);
-      pollTimer = setInterval(pollGenerationStatus, pollIntervalMs(data));
-    }
-
-    const terminal = ["completed", "failed", "cancelled"];
-    if (terminal.indexOf(data.status) >= 0) {
-      stopPolling();
-      if (btnCancelGeneration) btnCancelGeneration.classList.add("hidden");
-    }
-
-    if (data.status === "completed") {
-      if (downloadAudiobook) {
-        downloadAudiobook.classList.remove("hidden");
-        downloadAudiobook.href =
-          "/api/v1/pdf/" + currentIntake.intake_id + "/audiobook/download";
+      if (response.status === 404) {
+        updateLastUpdatedLabel();
+        return;
       }
-      showGenerationMessage("Audiobook ready — download below.");
-      return;
+
+      const data = await response.json().catch(function () {
+        return null;
+      });
+
+      if (!response.ok || !data) {
+        updateLastUpdatedLabel();
+        return;
+      }
+
+      lastPollSuccessAt = Date.now();
+      lastGoodStatus = data;
+      updateProgressUI(data);
+
+      if (TERMINAL_STATUSES.indexOf(data.status) >= 0) {
+        clearPollTimers();
+        generationActive = false;
+        if (btnCancelGeneration) btnCancelGeneration.classList.add("hidden");
+        if (generationProgressSection) {
+          generationProgressSection.classList.remove("gen-panel-active");
+        }
+      }
+
+      if (data.status === "completed") {
+        if (downloadAudiobook) {
+          downloadAudiobook.classList.remove("hidden");
+          downloadAudiobook.href =
+            "/api/v1/pdf/" + currentIntake.intake_id + "/audiobook/download";
+        }
+        showGenerationMessage("Your audiobook is ready — download below.");
+        return;
+      }
+
+      if (data.status === "failed") {
+        showGenerationMessage(
+          "Generation stopped before completion. You can try again from the dashboard.",
+          true
+        );
+        return;
+      }
+
+      if (data.status === "cancelled") {
+        showGenerationMessage("Generation was cancelled.");
+      }
+    } catch (_err) {
+      updateLastUpdatedLabel();
+    } finally {
+      pollInFlight = false;
     }
-
-    if (data.status === "failed") {
-      showGenerationMessage(data.error || "Generation failed.", true);
-      return;
-    }
-
-    if (data.status === "cancelled") {
-      showGenerationMessage("Generation cancelled.");
-    }
-  }
-
-  function pollIntervalMs(data) {
-    if (!data) return 2000;
-    if (data.status === "waiting_quota" || data.status === "generating") return 1000;
-    return 2000;
-  }
-
-  function schedulePoll() {
-    stopPolling();
-    pollTimer = setInterval(pollGenerationStatus, 1500);
   }
 
   function openChunkModal() {
@@ -470,10 +638,18 @@
       await saveEdits();
     }
 
-    if (progressStatus) progressStatus.textContent = "Starting…";
     if (progressProject) progressProject.textContent = currentIntake.filename;
     if (btnCancelGeneration) btnCancelGeneration.classList.remove("hidden");
     if (downloadAudiobook) downloadAudiobook.classList.add("hidden");
+
+    startGenerationUX();
+    updateProgressUI({
+      status: "generating",
+      current_chunk: 0,
+      total_chunks: 0,
+      progress_percent: 0,
+      eta: "estimating...",
+    });
 
     const response = await fetch(
       "/api/v1/pdf/" + currentIntake.intake_id + "/continue",
@@ -483,28 +659,26 @@
       return {};
     });
     if (!response.ok) {
+      stopPolling();
       showActionMessage(formatApiError(payload, "Continue failed."), true);
       if (btnCancelGeneration) btnCancelGeneration.classList.add("hidden");
       return;
     }
 
-    updateProgressUI({
+    lastGoodStatus = {
       status: "generating",
-      status_label: "Starting generation…",
       current_chunk: 0,
       total_chunks: payload.total_chunks || 0,
-      current_token_index: 0,
-      total_tokens: 0,
-      current_chunk_size: 0,
-      current_chunk_preview: "",
       progress_percent: 0,
       eta: "estimating...",
-    });
+    };
+    updateProgressUI(lastGoodStatus);
 
-    showActionMessage("Generating audiobook (" + payload.total_chunks + " chunks)…");
-    showGenerationMessage("Sequential TTS in progress — status updates every second.");
+    showActionMessage(
+      "Creating your audiobook (" + (payload.total_chunks || "?") + " segments)…"
+    );
+    showGenerationMessage("Generation in progress — sit back while we narrate your book.");
 
-    schedulePoll();
     pollGenerationStatus();
   }
 
@@ -513,7 +687,13 @@
     await fetch("/api/v1/pdf/" + currentIntake.intake_id + "/generation/cancel", {
       method: "POST",
     });
-    showGenerationMessage("Cancelling generation…");
+    generationActive = true;
+    updateActivityPresentation(
+      { status: "cancelling", current_chunk: lastGoodStatus ? lastGoodStatus.current_chunk : 0 },
+      rotateIndex
+    );
+    showGenerationMessage("Stopping after the current segment…");
+    pollGenerationStatus();
   }
 
   function showActionMessage(msg, isError) {

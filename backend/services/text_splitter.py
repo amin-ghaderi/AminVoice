@@ -8,15 +8,20 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
-# Sizing (chars) — tuned for ~80–180 chunks on a 112-page Persian book.
+# Primary pack sizing (semantic split pipeline).
 SOFT_MIN_CHARS = 350
 SOFT_MAX_CHARS = 2000
 HARD_MAX_CHARS = 2800
+
+# Post-validation targets (~2 min narration, sentence-safe).
+VALIDATION_MIN_CHARS = 300
+VALIDATION_MAX_CHARS = 1300
 
 # Persian-aware sentence boundaries (delimiter kept on the left segment).
 _SENTENCE_SPLIT = re.compile(
     r"(?<=[؟!؛.۔:…])\s+|(?<=[?!;])\s+"
 )
+_SENTENCE_END = re.compile(r'[؟!؛.۔:…?!;][\"\'\)\]]*\s*$')
 
 _DEFAULT_SOFT_MAX = SOFT_MAX_CHARS
 
@@ -29,6 +34,8 @@ class ChunkingStats:
     max_chunk_length: int
     count_below_soft_min: int
     count_above_hard_warn: int
+    count_small_chunks: int = 0
+    count_large_chunks: int = 0
 
     def to_dict(self) -> dict:
         return {
@@ -38,6 +45,8 @@ class ChunkingStats:
             "max_chunk_length": self.max_chunk_length,
             "count_below_soft_min": self.count_below_soft_min,
             "count_above_2500": self.count_above_hard_warn,
+            "count_small_chunks": self.count_small_chunks,
+            "count_large_chunks": self.count_large_chunks,
         }
 
 
@@ -58,9 +67,11 @@ def split_text(text: str, max_chars: int | None = None) -> list[str]:
     units = _build_semantic_units(cleaned, soft_max)
     chunks = _pack_units(units, soft_max=soft_max, hard_max=HARD_MAX_CHARS)
     chunks = _merge_small_chunks(chunks, soft_min=SOFT_MIN_CHARS, hard_max=HARD_MAX_CHARS)
+    chunks = _validate_chunks(chunks)
 
     stats = compute_chunking_stats(chunks)
     log_chunking_stats(stats)
+    logger.info("Chunk validation pass completed")
     return chunks
 
 
@@ -75,6 +86,8 @@ def compute_chunking_stats(chunks: list[str]) -> ChunkingStats:
         max_chunk_length=max(lengths),
         count_below_soft_min=sum(1 for n in lengths if n < SOFT_MIN_CHARS),
         count_above_hard_warn=sum(1 for n in lengths if n > 2500),
+        count_small_chunks=sum(1 for n in lengths if n < VALIDATION_MIN_CHARS),
+        count_large_chunks=sum(1 for n in lengths if n > VALIDATION_MAX_CHARS),
     )
 
 
@@ -88,6 +101,16 @@ def log_chunking_stats(stats: ChunkingStats) -> None:
         SOFT_MIN_CHARS,
         stats.count_below_soft_min,
         stats.count_above_hard_warn,
+    )
+    logger.info(
+        "Chunk validation report: total_chunks=%s avg_chars=%s min_chars=%s max_chars=%s "
+        "count_small_chunks=%s count_large_chunks=%s",
+        stats.total_chunks,
+        stats.avg_chunk_length,
+        stats.min_chunk_length,
+        stats.max_chunk_length,
+        stats.count_small_chunks,
+        stats.count_large_chunks,
     )
 
 
@@ -205,6 +228,156 @@ def _merge_small_chunks(
             merged.append(tail)
 
     return merged
+
+
+def _ends_with_sentence(text: str) -> bool:
+    return bool(_SENTENCE_END.search(text.strip()))
+
+
+def _validate_chunks(chunks: list[str]) -> list[str]:
+    """Post-process: enforce size limits and sentence boundaries."""
+    result = [chunk.strip() for chunk in chunks if chunk.strip()]
+    if not result:
+        return []
+
+    for _ in range(4):
+        before = result
+        result = _split_oversized_chunks(result, VALIDATION_MAX_CHARS)
+        result = _merge_validation_small(result, VALIDATION_MIN_CHARS, VALIDATION_MAX_CHARS)
+        result = _fix_incomplete_endings(result, VALIDATION_MAX_CHARS)
+        result = [chunk.strip() for chunk in result if chunk.strip()]
+        if result == before:
+            break
+    return result
+
+
+def _split_oversized_chunks(chunks: list[str], max_chars: int) -> list[str]:
+    out: list[str] = []
+    for chunk in chunks:
+        if len(chunk) <= max_chars:
+            out.append(chunk)
+            continue
+        out.extend(_pack_sentences(chunk, max_chars))
+    return out
+
+
+def _pack_sentences(text: str, max_chars: int) -> list[str]:
+    """Pack sentences into chunks not exceeding max_chars (sentence boundaries only)."""
+    sentences = _split_sentences(text)
+    if not sentences:
+        return [text] if text else []
+
+    packed: list[str] = []
+    current = ""
+    for sentence in sentences:
+        if len(sentence) > max_chars:
+            if current:
+                packed.append(current)
+                current = ""
+            packed.append(sentence)
+            continue
+
+        combined = f"{current} {sentence}".strip() if current else sentence
+        if len(combined) <= max_chars:
+            current = combined
+        else:
+            if current:
+                packed.append(current)
+            current = sentence
+
+    if current:
+        packed.append(current)
+    return packed
+
+
+def _merge_validation_small(
+    chunks: list[str],
+    min_chars: int,
+    max_chars: int,
+) -> list[str]:
+    if len(chunks) < 2:
+        return chunks
+
+    work = list(chunks)
+    index = 0
+    merged: list[str] = []
+    while index < len(work):
+        chunk = work[index]
+        is_last = index == len(work) - 1
+
+        if not is_last and len(chunk) < min_chars:
+            if merged:
+                prev = merged[-1]
+                if len(prev) + 1 + len(chunk) <= max_chars:
+                    merged[-1] = f"{prev} {chunk}"
+                    index += 1
+                    continue
+            nxt = work[index + 1]
+            if len(chunk) + 1 + len(nxt) <= max_chars:
+                work[index + 1] = f"{chunk} {nxt}"
+                index += 1
+                continue
+
+        if is_last and len(chunk) < min_chars and merged:
+            prev = merged[-1]
+            if len(prev) + 1 + len(chunk) <= max_chars:
+                merged[-1] = f"{prev} {chunk}"
+                index += 1
+                continue
+
+        merged.append(chunk)
+        index += 1
+
+    return merged
+
+
+def _fix_incomplete_endings(chunks: list[str], max_chars: int) -> list[str]:
+    if len(chunks) < 2:
+        return chunks
+
+    work = list(chunks)
+    fixed: list[str] = []
+    index = 0
+    while index < len(work):
+        current = work[index]
+        if index + 1 < len(work) and not _ends_with_sentence(current):
+            extended, remainder = _pull_sentences_from_next(current, work[index + 1], max_chars)
+            fixed.append(extended)
+            if remainder:
+                work[index + 1] = remainder
+                index += 1
+            else:
+                index += 2
+            continue
+        fixed.append(current)
+        index += 1
+    return fixed
+
+
+def _pull_sentences_from_next(current: str, nxt: str, max_chars: int) -> tuple[str, str]:
+    if _ends_with_sentence(current):
+        return current, nxt
+
+    sentences = _split_sentences(nxt)
+    if not sentences:
+        combined = f"{current} {nxt}".strip()
+        if len(combined) <= max_chars:
+            return combined, ""
+        return current, nxt
+
+    extended = current
+    used = 0
+    for sentence in sentences:
+        candidate = f"{extended} {sentence}".strip() if extended else sentence
+        if len(candidate) > max_chars:
+            break
+        extended = candidate
+        used += 1
+        if _ends_with_sentence(extended):
+            break
+
+    remainder = " ".join(sentences[used:]).strip()
+    return extended, remainder
 
 
 def _hard_split(text: str, max_chars: int) -> list[str]:
