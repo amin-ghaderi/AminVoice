@@ -1,19 +1,22 @@
-"""Heuristic audio quality metrics for merged audiobook chunks (no ML)."""
+"""Heuristic audio quality metrics for audiobook chunks (stdlib wave only)."""
 
 from __future__ import annotations
 
 import json
 import logging
+import math
 import statistics
+import struct
+import wave
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-SILENCE_THRESH_DBFS = -45
+SILENCE_RMS_THRESHOLD = 500
 BOUNDARY_WINDOW_MS = 100
-DISCONTINUITY_DB_DELTA = 10.0
-BOUNDARY_SILENCE_JUMP_DB = 18.0
+DISCONTINUITY_RMS_DELTA = 2500
+BOUNDARY_SILENCE_JUMP = 4500
 
 
 @dataclass
@@ -56,10 +59,93 @@ class AudioQualityReportStore:
         return AudioQualityReport(**data)
 
 
+@dataclass
+class _WavMetrics:
+    samples: list[int]
+    sample_rate: int
+
+    @property
+    def duration_ms(self) -> int:
+        if self.sample_rate <= 0:
+            return 0
+        return int(len(self.samples) * 1000 / self.sample_rate)
+
+
+def _load_wav_mono(path: Path) -> _WavMetrics:
+    with wave.open(str(path), "rb") as wav_file:
+        channels = wav_file.getnchannels()
+        sample_width = wav_file.getsampwidth()
+        sample_rate = wav_file.getframerate()
+        frames = wav_file.readframes(wav_file.getnframes())
+
+    if sample_width != 2:
+        raise ValueError(f"Unsupported sample width {sample_width} in {path}")
+
+    count = len(frames) // 2
+    samples = list(struct.unpack(f"<{count}h", frames[: count * 2]))
+    if channels > 1:
+        samples = samples[::channels]
+    return _WavMetrics(samples=samples, sample_rate=sample_rate)
+
+
+def _rms(samples: list[int]) -> float:
+    if not samples:
+        return 0.0
+    mean_sq = sum(s * s for s in samples) / len(samples)
+    return math.sqrt(mean_sq)
+
+
+def _rms_to_dbfs(rms: float) -> float:
+    if rms <= 0:
+        return -90.0
+    return 20.0 * math.log10(rms / 32768.0)
+
+
+def _silence_ratio(metrics: _WavMetrics, window_ms: int = 10) -> float:
+    if not metrics.samples or metrics.sample_rate <= 0:
+        return 1.0
+    window_size = max(1, int(metrics.sample_rate * window_ms / 1000))
+    quiet = 0
+    total = 0
+    for start in range(0, len(metrics.samples), window_size):
+        window = metrics.samples[start : start + window_size]
+        if not window:
+            continue
+        total += 1
+        if _rms(window) <= SILENCE_RMS_THRESHOLD:
+            quiet += 1
+    return quiet / total if total else 0.0
+
+
+def _window_samples(metrics: _WavMetrics, *, end: bool) -> list[int]:
+    if metrics.sample_rate > 0:
+        window_size = int(metrics.sample_rate * BOUNDARY_WINDOW_MS / 1000)
+    else:
+        window_size = 2400
+    window_size = max(1, min(window_size, len(metrics.samples)))
+    if window_size <= 0:
+        return []
+    if end:
+        return metrics.samples[-window_size:]
+    return metrics.samples[:window_size]
+
+
+def _is_discontinuity(tail: list[int], head: list[int]) -> bool:
+    tail_rms = _rms(tail)
+    head_rms = _rms(head)
+    if abs(tail_rms - head_rms) >= DISCONTINUITY_RMS_DELTA:
+        return True
+    tail_quiet = tail_rms <= SILENCE_RMS_THRESHOLD
+    head_quiet = head_rms <= SILENCE_RMS_THRESHOLD
+    if tail_quiet != head_quiet:
+        return True
+    if not tail_quiet and not head_quiet and abs(tail_rms - head_rms) >= BOUNDARY_SILENCE_JUMP:
+        return True
+    return False
+
+
 def analyze_chunks(chunk_paths: list[Path], intake_id: str) -> AudioQualityReport:
     """Compute heuristic quality metrics from per-chunk WAV files."""
-    from pydub import AudioSegment
-
     if not chunk_paths:
         return AudioQualityReport(
             intake_id=intake_id,
@@ -71,20 +157,23 @@ def analyze_chunks(chunk_paths: list[Path], intake_id: str) -> AudioQualityRepor
             quality_label="unknown",
         )
 
-    segments: list = []
+    metrics_list: list[_WavMetrics] = []
     silence_ratios: list[float] = []
     loudness_values: list[float] = []
 
     for path in chunk_paths:
         if not path.exists():
             continue
-        segment = AudioSegment.from_wav(str(path))
-        segment = segment.set_frame_rate(24_000).set_channels(1)
-        segments.append(segment)
-        silence_ratios.append(_silence_ratio(segment))
-        loudness_values.append(_safe_dbfs(segment))
+        try:
+            metrics = _load_wav_mono(path)
+        except (wave.Error, ValueError) as exc:
+            logger.warning("Skipping quality analysis for %s: %s", path, exc)
+            continue
+        metrics_list.append(metrics)
+        silence_ratios.append(_silence_ratio(metrics))
+        loudness_values.append(_rms_to_dbfs(_rms(metrics.samples)))
 
-    discontinuities = _count_discontinuities(segments)
+    discontinuities = _count_discontinuities(metrics_list)
     avg_silence = statistics.mean(silence_ratios) if silence_ratios else 0.0
     loudness_var = (
         statistics.pvariance(loudness_values) if len(loudness_values) > 1 else 0.0
@@ -93,7 +182,7 @@ def analyze_chunks(chunk_paths: list[Path], intake_id: str) -> AudioQualityRepor
 
     report = AudioQualityReport(
         intake_id=intake_id,
-        chunk_count=len(segments),
+        chunk_count=len(metrics_list),
         avg_chunk_silence_ratio=round(avg_silence, 4),
         discontinuities_count=discontinuities,
         loudness_variance=round(loudness_var, 2),
@@ -113,64 +202,16 @@ def analyze_chunks(chunk_paths: list[Path], intake_id: str) -> AudioQualityRepor
     return report
 
 
-def _silence_ratio(segment, window_ms: int = 10) -> float:
-    if len(segment) == 0:
-        return 1.0
-    quiet_windows = 0
-    total_windows = 0
-    for start in range(0, len(segment), window_ms):
-        window = segment[start : start + window_ms]
-        if len(window) == 0:
-            continue
-        total_windows += 1
-        if window.max_dBFS == float("-inf") or window.dBFS <= SILENCE_THRESH_DBFS:
-            quiet_windows += 1
-    return quiet_windows / total_windows if total_windows else 0.0
-
-
-def _safe_dbfs(segment) -> float:
-    if segment.max_dBFS == float("-inf"):
-        return SILENCE_THRESH_DBFS
-    return float(segment.dBFS)
-
-
-def _count_discontinuities(segments: list) -> int:
-    if len(segments) < 2:
+def _count_discontinuities(metrics_list: list[_WavMetrics]) -> int:
+    if len(metrics_list) < 2:
         return 0
-
     count = 0
-    for index in range(len(segments) - 1):
-        tail = _window(segments[index], end=True)
-        head = _window(segments[index + 1], end=False)
+    for index in range(len(metrics_list) - 1):
+        tail = _window_samples(metrics_list[index], end=True)
+        head = _window_samples(metrics_list[index + 1], end=False)
         if _is_discontinuity(tail, head):
             count += 1
     return count
-
-
-def _window(segment, *, end: bool):
-    duration = min(BOUNDARY_WINDOW_MS, len(segment))
-    if duration <= 0:
-        return segment
-    if end:
-        return segment[-duration:]
-    return segment[:duration]
-
-
-def _is_discontinuity(tail, head) -> bool:
-    tail_db = _safe_dbfs(tail)
-    head_db = _safe_dbfs(head)
-    if abs(tail_db - head_db) >= DISCONTINUITY_DB_DELTA:
-        return True
-    tail_peak = tail.max_dBFS
-    head_peak = head.max_dBFS
-    if tail_peak == float("-inf") and head_peak > SILENCE_THRESH_DBFS:
-        return True
-    if head_peak == float("-inf") and tail_peak > SILENCE_THRESH_DBFS:
-        return True
-    if tail_peak > SILENCE_THRESH_DBFS and head_peak > SILENCE_THRESH_DBFS:
-        if abs(tail_peak - head_peak) >= BOUNDARY_SILENCE_JUMP_DB:
-            return True
-    return False
 
 
 def _chunk_variation_score(loudness_values: list[float]) -> float:

@@ -7,7 +7,7 @@ import time
 from pathlib import Path
 
 from backend.config.settings import Settings
-from backend.services.audio_merger import merge_wav_files
+from backend.services.ffmpeg_merger import FFmpegMergeError, FFmpegNotFoundError, merge_chunks_ffmpeg
 from backend.services.audio_quality_report import AudioQualityReportStore, analyze_chunks
 from backend.services.chunk_voice_normalizer import normalize_chunk_for_tts
 from backend.services.voice_continuity import VoiceContinuityTracker
@@ -168,9 +168,9 @@ class AudiobookGenerator:
             status.status_label = "Merging final audio"
             status.eta = "merging..."
             self._status_store.write(status)
-            logger.info("Merging %s chunks into final audiobook", len(chunk_paths))
+            logger.info("Merging %s chunks into final audiobook via FFmpeg", len(chunk_paths))
 
-            merge_wav_files(chunk_paths, output_path)
+            merge_chunks_ffmpeg(intake_id, str(audio_dir), str(output_path))
             logger.info("Merged final audio: %s", output_path)
 
             try:
@@ -186,7 +186,7 @@ class AudiobookGenerator:
             logger.info("Generation cancelled: %s", intake_id)
             monitor.end_run()
             return
-        except Exception as exc:
+        except (FFmpegNotFoundError, FFmpegMergeError, Exception) as exc:
             monitor.end_run()
             self._fail(intake_id, str(exc))
             return

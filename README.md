@@ -138,9 +138,9 @@ Pipeline: **extract → clean → repair → preview → split → TTS → merge
 1. Copy `tokens/projects.example.json` → `tokens/projects.json` and add API keys.
 2. Upload PDF, review text, click **Continue to generation**.
 3. Chunks save to `storage/temp/audio/{intake_id}/0001.wav`, …
-4. Final file: `storage/outputs/{intake_id}_final_audiobook.wav`
+4. Final file: `storage/outputs/{intake_id}/final_audiobook.wav`
 
-Requires **ffmpeg** on PATH for `pydub` merge (Windows: install ffmpeg and add to PATH).
+Requires **ffmpeg** on PATH for final merge (Windows: install ffmpeg and add to PATH).
 
 ## Running tests
 
