@@ -1,0 +1,33 @@
+{
+  "chunk_index": 1,
+  "intake_id": "8b4ccc56-3fba-43d3-8648-73873e950a95",
+  "request": {
+    "chunk_index": 1,
+    "prompt": "Read the following Persian audiobook narration.\n\n# Director's note\n\nStyle:\nWarm, emotionally engaging, cinematic, deeply human.\n\nVoice:\nSingle narrator only — use prebuilt voice Sulafat for the entire audiobook.\nWarm masculine Persian narrator.\nDeep but soft voice.\nProfessional audiobook quality.\nNatural Persian pronunciation.\nDo not switch voices or introduce a second speaker.\n\nPacing:\nNatural pacing.\nNot too slow.\nNot robotic.\nSmooth storytelling rhythm.\n\nEmotion:\nWarm, reflective, emotionally engaging.\nSpeak naturally like a premium Persian audiobook narrator telling an important life story.\n\nAvoid:\nMonotone voice.\nCold documentary tone.\nExcessive slowness.\nOverly dramatic acting.\n\n## Sample Context:\nA premium Persian audiobook narrator telling an important life story in a warm, emotionally engaging, cinematic way. Natural pacing, warm emotional depth, human sounding voice.\n\n## Transcript (single narrator — Sulafat):\n\nNarration:\n[speak warmly]\n[natural pacing]\n[cinematic]\n[human tone]\n\n## Voice continuity (do NOT read aloud):\nThis is the opening segment. Begin with a natural audiobook intro cadence.\n\nزمان انتخاب رضا پھلوی کتاب حاضر را به ھمۀ ھم ميھنانم تقديم می کنم. به پدران و مادرانی که طی دھه ھا در راه پيشرفت ايران و رفاه ملت کوشيده اند. به ھم نس)نم، نسل قربانی شده، که فرصت خدمتگزاری به ميھن را نيافت، اگرچه خود را برای ادامۀ راه و بردوش گرفتن مسئوليت ھا آماده می کرد. به کسانی که خوشبينانه به استقبال \" انقلاب \" رفتند، اما امروز از کردۀ خويش پشيمانند. به جوانان ھشيار و ھوشمندی که به اميد آينده ای بھتر برای خويش و برای ھمۀ ايرانيان يک لحظه از تلاش و پيکار باز نايستاده اند. اين کتاب را ھم چنين به خاطرۀ بی گناھان، قربانيان بی عدالتی ھای گذشته و حال تقديم می کنم. به خاطرۀ سربازانی که از تماميت ارضی ميھن دفاع کردند. به ھمۀ کسانی که ھم چنان برای آزادی، دموکراسی و حقوق بشر در پيکارند. من نيز ھمانند آنان، ھمواره به ايران جاويدان می انديشم و به آن وفاد ار خواھم بود. فصل اول انتخاب دموکر اتيک ميشل تُبمن : آقای رضا پھلوی! شما پسرارشد آخرين پادشاه ايران، محمد رضا شاه پھلوی، ھستيد.",
+    "prompt_char_count": 2006,
+    "config": {
+      "model": "gemini-3.1-flash-tts-preview",
+      "temperature": 1,
+      "voice_name": "Sulafat",
+      "response_modalities": [
+        "audio"
+      ],
+      "speech_mode": "single_speaker"
+    },
+    "continuity_note": "This is the opening segment. Begin with a natural audiobook intro cadence.",
+    "scene_context": "",
+    "transcript": "زمان انتخاب رضا پھلوی کتاب حاضر را به ھمۀ ھم ميھنانم تقديم می کنم. به پدران و مادرانی که طی دھه ھا در راه پيشرفت ايران و رفاه ملت کوشيده اند. به ھم نس)نم، نسل قربانی شده، که فرصت خدمتگزاری به ميھن را نيافت، اگرچه خود را برای ادامۀ راه و بردوش گرفتن مسئوليت ھا آماده می کرد. به کسانی که خوشبينانه به استقبال \" انقلاب \" رفتند، اما امروز از کردۀ خويش پشيمانند. به جوانان ھشيار و ھوشمندی که به اميد آينده ای بھتر برای خويش و برای ھمۀ ايرانيان يک لحظه از تلاش و پيکار باز نايستاده اند. اين کتاب را ھم چنين به خاطرۀ بی گناھان، قربانيان بی عدالتی ھای گذشته و حال تقديم می کنم. به خاطرۀ سربازانی که از تماميت ارضی ميھن دفاع کردند. به ھمۀ کسانی که ھم چنان برای آزادی، دموکراسی و حقوق بشر در پيکارند. من نيز ھمانند آنان، ھمواره به ايران جاويدان می انديشم و به آن وفاد ار خواھم بود. فصل اول انتخاب دموکر اتيک ميشل تُبمن : آقای رضا پھلوی! شما پسرارشد آخرين پادشاه ايران، محمد رضا شاه پھلوی، ھستيد.",
+    "transcript_char_count": 885,
+    "token_name": "project-8",
+    "attempt": 8
+  },
+  "response": {
+    "success": true,
+    "error": null,
+    "wav_path": "C:\\Users\\Public\\Myapps\\AminVoice\\storage\\temp\\audio\\8b4ccc56-3fba-43d3-8648-73873e950a95\\0001.wav",
+    "wav_size_bytes": 4727084,
+    "mime_type": "audio/l16; rate=24000; channels=1",
+    "audio_bytes": 4727040,
+    "timestamp": 1779730627.344153
+  }
+}

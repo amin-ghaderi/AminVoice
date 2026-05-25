@@ -86,6 +86,7 @@ class Settings(BaseSettings):
             self.temp_dir / "generation",
             self.temp_dir / "quality",
             self.storage_root / "debug" / "chunks",
+            self.storage_root / "debug" / "tts",
             self.log_file.parent,
             self.frontend_static_dir / "uploads",
         ):

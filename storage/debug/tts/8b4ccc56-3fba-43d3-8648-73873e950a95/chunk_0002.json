@@ -1,0 +1,33 @@
+{
+  "chunk_index": 2,
+  "intake_id": "8b4ccc56-3fba-43d3-8648-73873e950a95",
+  "request": {
+    "chunk_index": 2,
+    "prompt": "Read the following Persian audiobook narration.\n\n# Director's note\n\nStyle:\nWarm, emotionally engaging, cinematic, deeply human.\n\nVoice:\nSingle narrator only — use prebuilt voice Sulafat for the entire audiobook.\nWarm masculine Persian narrator.\nDeep but soft voice.\nProfessional audiobook quality.\nNatural Persian pronunciation.\nDo not switch voices or introduce a second speaker.\n\nPacing:\nNatural pacing.\nNot too slow.\nNot robotic.\nSmooth storytelling rhythm.\n\nEmotion:\nWarm, reflective, emotionally engaging.\nSpeak naturally like a premium Persian audiobook narrator telling an important life story.\n\nAvoid:\nMonotone voice.\nCold documentary tone.\nExcessive slowness.\nOverly dramatic acting.\n\n## Sample Context:\nA premium Persian audiobook narrator telling an important life story in a warm, emotionally engaging, cinematic way. Natural pacing, warm emotional depth, human sounding voice.\n\n## Transcript (single narrator — Sulafat):\n\nNarration:\n[speak warmly]\n[natural pacing]\n[cinematic]\n[human tone]\n\n## Voice continuity (do NOT read aloud):\nCONTINUITY REFERENCE — for pacing and tone only; do NOT read these lines aloud:\nPrevious ending (period): «آقای رضا پھلوی! شما پسرارشد آخرين پادشاه ايران، محمد رضا شاه پھلوی، ھستيد.»\nThe prior segment ended on a full stop. Begin the transcript below with a gentle fresh beat while keeping the same narrator voice.\n\nنھاد پادشاھی ايران در آغاز سال ۱۹۷۹ با پيروزی انقلاب اسلامی و تسلط مذھبيون بنيادگرا به رھبری روح الله خمینی برايران، واژگون شد. ھنگامی که در نشريات نخستين سال ھای د ھۀ ھشتاد دههی هشتاد می نگريم، از عمق خطای مفسرانی شگفت زده می شويم که در آن دوران، فروپاشی سريع رژيم خمينی را پيش بينی می کردند. با خواندن کتابی که کريستيان مارک و آلن روديه در سال ٨٩١۶",
+    "prompt_char_count": 1710,
+    "config": {
+      "model": "gemini-3.1-flash-tts-preview",
+      "temperature": 1,
+      "voice_name": "Sulafat",
+      "response_modalities": [
+        "audio"
+      ],
+      "speech_mode": "single_speaker"
+    },
+    "continuity_note": "CONTINUITY REFERENCE — for pacing and tone only; do NOT read these lines aloud:\nPrevious ending (period): «آقای رضا پھلوی! شما پسرارشد آخرين پادشاه ايران، محمد رضا شاه پھلوی، ھستيد.»\nThe prior segment ended on a full stop. Begin the transcript below with a gentle fresh beat while keeping the same narrator voice.",
+    "scene_context": "",
+    "transcript": "نھاد پادشاھی ايران در آغاز سال ۱۹۷۹ با پيروزی انقلاب اسلامی و تسلط مذھبيون بنيادگرا به رھبری روح الله خمینی برايران، واژگون شد. ھنگامی که در نشريات نخستين سال ھای د ھۀ ھشتاد دههی هشتاد می نگريم، از عمق خطای مفسرانی شگفت زده می شويم که در آن دوران، فروپاشی سريع رژيم خمينی را پيش بينی می کردند. با خواندن کتابی که کريستيان مارک و آلن روديه در سال ٨٩١۶",
+    "transcript_char_count": 350,
+    "token_name": "project-9",
+    "attempt": 2
+  },
+  "response": {
+    "success": true,
+    "error": null,
+    "wav_path": "C:\\Users\\Public\\Myapps\\AminVoice\\storage\\temp\\audio\\8b4ccc56-3fba-43d3-8648-73873e950a95\\0002.wav",
+    "wav_size_bytes": 1804844,
+    "mime_type": "audio/l16; rate=24000; channels=1",
+    "audio_bytes": 1804800,
+    "timestamp": 1779730652.6644719
+  }
+}

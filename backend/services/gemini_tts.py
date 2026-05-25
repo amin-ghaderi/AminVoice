@@ -15,10 +15,21 @@ from google.genai import types
 
 from backend.services.scene_context import SceneContext
 from backend.services.token_pool import GenerationCancelled, TokenPool
+from backend.services.tts_debug_store import (
+    build_request_payload,
+    build_response_payload,
+    infer_tts_debug_context,
+    persist_tts_debug_record,
+    sanitize_config_snapshot,
+    scene_context_block,
+)
 
 logger = logging.getLogger(__name__)
 
 MODEL = "gemini-3.1-flash-tts-preview"
+
+# Single narrator for all chunks — locked in speech_config (no multi-speaker).
+NARRATOR_VOICE_NAME = "Sulafat"
 
 _DIRECTOR_PROMPT = """Read the following Persian audiobook narration.
 
@@ -28,10 +39,12 @@ Style:
 Warm, emotionally engaging, cinematic, deeply human.
 
 Voice:
+Single narrator only — use prebuilt voice Sulafat for the entire audiobook.
 Warm masculine Persian narrator.
 Deep but soft voice.
 Professional audiobook quality.
 Natural Persian pronunciation.
+Do not switch voices or introduce a second speaker.
 
 Pacing:
 Natural pacing.
@@ -52,9 +65,9 @@ Overly dramatic acting.
 ## Sample Context:
 A premium Persian audiobook narrator telling an important life story in a warm, emotionally engaging, cinematic way. Natural pacing, warm emotional depth, human sounding voice.
 
-## Transcript:
+## Transcript (single narrator — Sulafat):
 
-Speaker 1:
+Narration:
 [speak warmly]
 [natural pacing]
 [cinematic]
@@ -79,29 +92,15 @@ class TtsProgressHooks:
 
 
 def _build_generate_config() -> types.GenerateContentConfig:
+    """Single-speaker TTS config — same voice (Sulafat) on every chunk."""
     return types.GenerateContentConfig(
         temperature=1,
         response_modalities=["audio"],
         speech_config=types.SpeechConfig(
-            multi_speaker_voice_config=types.MultiSpeakerVoiceConfig(
-                speaker_voice_configs=[
-                    types.SpeakerVoiceConfig(
-                        speaker="Speaker 1",
-                        voice_config=types.VoiceConfig(
-                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                                voice_name="Sulafat"
-                            )
-                        ),
-                    ),
-                    types.SpeakerVoiceConfig(
-                        speaker="Speaker 2",
-                        voice_config=types.VoiceConfig(
-                            prebuilt_voice_config=types.PrebuiltVoiceConfig(
-                                voice_name="Puck"
-                            )
-                        ),
-                    ),
-                ]
+            voice_config=types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(
+                    voice_name=NARRATOR_VOICE_NAME,
+                )
             ),
         ),
     )
@@ -228,9 +227,53 @@ def generate_audio(
         )
     ]
 
+    intake_id, chunk_index = infer_tts_debug_context(output_path)
+    scene_block = scene_context_block(scene_context)
+    transcript = text.strip()
+    config_snapshot = sanitize_config_snapshot(
+        model=MODEL,
+        voice_name=NARRATOR_VOICE_NAME,
+        temperature=1,
+    )
+
     last_error: Exception | None = None
     tried_all_tokens = False
     cancel_checker = hooks.cancel_checker if hooks else None
+
+    def _persist_debug(
+        *,
+        success: bool,
+        token_name: str,
+        attempt: int,
+        error: str | None = None,
+        wav_path: str | None = None,
+        wav_size_bytes: int | None = None,
+        mime_type: str | None = None,
+        audio_bytes: int | None = None,
+    ) -> None:
+        record = {
+            "chunk_index": chunk_index,
+            "intake_id": intake_id,
+            "request": build_request_payload(
+                chunk_index=chunk_index,
+                prompt=prompt,
+                transcript=transcript,
+                continuity_note=continuity_note,
+                scene_block=scene_block,
+                token_name=token_name,
+                attempt=attempt,
+                config_snapshot=config_snapshot,
+            ),
+            "response": build_response_payload(
+                success=success,
+                error=error,
+                wav_path=wav_path,
+                wav_size_bytes=wav_size_bytes,
+                mime_type=mime_type,
+                audio_bytes=audio_bytes,
+            ),
+        }
+        persist_tts_debug_record(intake_id, chunk_index, record)
 
     for attempt in range(max_attempts):
         if cancel_checker and cancel_checker():
@@ -273,7 +316,18 @@ def generate_audio(
             out = Path(output_path)
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_bytes(data_buffer)
+            wav_resolved = str(out.resolve())
+            wav_size = out.stat().st_size
             logger.info("Saved wav: %s", out.name)
+            _persist_debug(
+                success=True,
+                token_name=token_name,
+                attempt=attempt + 1,
+                wav_path=wav_resolved,
+                wav_size_bytes=wav_size,
+                mime_type=mime_type,
+                audio_bytes=len(combined),
+            )
             if hooks and hooks.on_chunk_success:
                 hooks.on_chunk_success(token_name)
             return
@@ -307,9 +361,23 @@ def generate_audio(
             if attempt < max_attempts - 1:
                 time.sleep(2)
                 continue
+            _persist_debug(
+                success=False,
+                token_name=token_name,
+                attempt=attempt + 1,
+                error=str(exc),
+                wav_path=str(Path(output_path).resolve()),
+            )
             raise
 
     detail = f"after {max_attempts} attempts"
     if tried_all_tokens:
         detail += " (all tokens exhausted)"
+    _persist_debug(
+        success=False,
+        token_name=token_pool.current_name(),
+        attempt=max_attempts,
+        error=f"{detail}: {last_error}",
+        wav_path=str(Path(output_path).resolve()),
+    )
     raise RuntimeError(f"TTS generation failed {detail}: {last_error}")
