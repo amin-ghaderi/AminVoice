@@ -8,10 +8,15 @@ from pathlib import Path
 
 from backend.config.settings import Settings
 from backend.services.audio_merger import merge_wav_files
+from backend.services.audio_quality_report import AudioQualityReportStore, analyze_chunks
+from backend.services.chunk_voice_normalizer import normalize_chunk_for_tts
+from backend.services.voice_continuity import VoiceContinuityTracker
 from backend.services.gemini_tts import TtsProgressHooks, generate_audio
 from backend.services.generation_status import GenerationStatus, GenerationStatusStore
 from backend.services.text_splitter import split_text
+from backend.services.token_config import load_enabled_tokens
 from backend.services.token_pool import GenerationCancelled, TokenPool
+from backend.services.token_pool_monitor import get_token_pool_monitor
 
 logger = logging.getLogger(__name__)
 
@@ -36,11 +41,16 @@ class AudiobookGenerator:
     def __init__(self, settings: Settings) -> None:
         self._settings = settings
         self._status_store = GenerationStatusStore(settings.temp_dir / "generation")
+        self._quality_store = AudioQualityReportStore(settings.temp_dir / "quality")
         self._tokens_file = settings.tokens_file
 
     @property
     def status_store(self) -> GenerationStatusStore:
         return self._status_store
+
+    @property
+    def quality_store(self) -> AudioQualityReportStore:
+        return self._quality_store
 
     def run(self, intake_id: str, text: str, project_name: str) -> None:
         audio_dir = self._settings.temp_dir / "audio" / intake_id
@@ -54,6 +64,10 @@ class AudiobookGenerator:
             return
 
         token_pool = TokenPool(self._tokens_file)
+        monitor = get_token_pool_monitor()
+        token_names = [entry["name"] for entry in load_enabled_tokens(self._tokens_file)]
+        monitor.begin_run(intake_id, token_names, len(chunks))
+
         status = GenerationStatus(
             intake_id=intake_id,
             status="generating",
@@ -79,6 +93,10 @@ class AudiobookGenerator:
             status.status_label = f"Resuming at chunk {start_index}/{len(chunks)}"
             self._status_store.write(status)
 
+        continuity = VoiceContinuityTracker()
+        if start_index > 1:
+            continuity.seed_from_text(normalize_chunk_for_tts(chunks[start_index - 2]))
+
         start_time = time.time()
 
         try:
@@ -88,6 +106,7 @@ class AudiobookGenerator:
                     status.status_label = "Generation cancelled"
                     self._status_store.write(status)
                     logger.info("Generation cancelled: %s", intake_id)
+                    monitor.end_run()
                     return
 
                 chunk = chunks[index - 1]
@@ -99,14 +118,29 @@ class AudiobookGenerator:
                 self._sync_token_fields(status, token_pool)
                 self._status_store.write(status)
 
-                logger.info("Generating chunk %s/%s (%s chars)", index, len(chunks), len(chunk))
+                monitor.set_current_chunk(index)
+                clean_text = normalize_chunk_for_tts(chunk)
+                prepared = continuity.prepare_chunk(clean_text)
+                ctx = prepared.voice_context
+                logger.info(
+                    "Generating chunk %s/%s (%s chars, continuity=%s punct=%s)",
+                    index,
+                    len(chunks),
+                    len(prepared.transcript_text),
+                    ctx.continuity_flag,
+                    ctx.last_punctuation_type,
+                )
                 self._generate_chunk_with_retry(
                     intake_id,
-                    chunk,
+                    index,
+                    prepared.transcript_text,
+                    prepared.conditioning_note,
                     wav_path,
                     token_pool,
                     status,
+                    monitor,
                 )
+                continuity.after_chunk(prepared.transcript_text)
                 chunk_paths.append(wav_path)
 
                 elapsed = time.time() - start_time
@@ -126,16 +160,25 @@ class AudiobookGenerator:
             merge_wav_files(chunk_paths, output_path)
             logger.info("Merged final audio: %s", output_path)
 
+            try:
+                report = analyze_chunks(chunk_paths, intake_id)
+                self._quality_store.write(report)
+            except Exception as exc:
+                logger.warning("Audio quality report skipped for %s: %s", intake_id, exc)
+
         except GenerationCancelled:
             status.status = "cancelled"
             status.status_label = "Generation cancelled"
             self._status_store.write(status)
             logger.info("Generation cancelled: %s", intake_id)
+            monitor.end_run()
             return
         except Exception as exc:
+            monitor.end_run()
             self._fail(intake_id, str(exc))
             return
 
+        monitor.end_run()
         status.status = "completed"
         status.status_label = "Audiobook ready"
         status.output_path = str(output_path)
@@ -151,10 +194,13 @@ class AudiobookGenerator:
     def _generate_chunk_with_retry(
         self,
         intake_id: str,
+        chunk_index: int,
         chunk: str,
+        continuity_note: str,
         wav_path: Path,
         token_pool: TokenPool,
         status: GenerationStatus,
+        monitor,
         *,
         per_chunk_attempts: int = 5,
     ) -> None:
@@ -184,6 +230,13 @@ class AudiobookGenerator:
                 wait_seconds=remaining,
                 **self._token_status_kwargs(token_pool),
             ),
+            on_token_used=lambda name: monitor.record_token_used(name, chunk_index),
+            on_quota_exhausted=lambda name: monitor.record_quota_failure(name, chunk_index),
+            on_token_switched=lambda from_n, to_n, reason: monitor.record_switch(
+                from_n, to_n, reason, chunk_index
+            ),
+            on_pool_waiting=lambda wait_s: monitor.record_pool_waiting(wait_s),
+            on_chunk_success=lambda name: monitor.record_chunk_success(name, chunk_index),
         )
 
         last_error: Exception | None = None
@@ -197,8 +250,10 @@ class AudiobookGenerator:
                     token_pool,
                     max_attempts=12,
                     hooks=hooks,
+                    continuity_note=continuity_note,
                 )
                 self._sync_token_fields(status, token_pool)
+                monitor.sync_active(token_pool.current_name(), token_pool.current_index)
                 self._status_store.write(status)
                 return
             except GenerationCancelled:

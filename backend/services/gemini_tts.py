@@ -69,6 +69,12 @@ class TtsProgressHooks:
     on_rate_limited: Callable[[int], None] | None = None
     on_waiting_tick: Callable[[int], None] | None = None
     cancel_checker: Callable[[], bool] | None = None
+    # Observability only — does not affect token selection.
+    on_token_used: Callable[[str], None] | None = None
+    on_quota_exhausted: Callable[[str], None] | None = None
+    on_token_switched: Callable[[str, str, str], None] | None = None
+    on_pool_waiting: Callable[[int], None] | None = None
+    on_chunk_success: Callable[[str], None] | None = None
 
 
 def _build_generate_config() -> types.GenerateContentConfig:
@@ -178,6 +184,17 @@ def _is_rate_limit_error(exc: Exception) -> bool:
     return "429" in message or "RESOURCE_EXHAUSTED" in message
 
 
+def _build_tts_prompt(transcript: str, continuity_note: str | None = None) -> str:
+    parts = [_DIRECTOR_PROMPT.rstrip()]
+    note = (continuity_note or "").strip()
+    if note:
+        parts.append("\n\n## Voice continuity (do NOT read aloud):\n")
+        parts.append(note)
+    parts.append("\n\n")
+    parts.append(transcript.strip())
+    return "".join(parts)
+
+
 def generate_audio(
     text: str,
     output_path: str,
@@ -185,9 +202,10 @@ def generate_audio(
     *,
     max_attempts: int = 15,
     hooks: TtsProgressHooks | None = None,
+    continuity_note: str | None = None,
 ) -> None:
     """Generate one WAV file for a text chunk with token fallback on quota errors."""
-    prompt = _DIRECTOR_PROMPT + text.strip()
+    prompt = _build_tts_prompt(text, continuity_note)
     config = _build_generate_config()
     contents = [
         types.Content(
@@ -203,6 +221,10 @@ def generate_audio(
     for attempt in range(max_attempts):
         if cancel_checker and cancel_checker():
             raise GenerationCancelled("Generation cancelled.")
+
+        token_name = token_pool.current_name()
+        if hooks and hooks.on_token_used:
+            hooks.on_token_used(token_name)
 
         api_key = token_pool.current_key()
         client = genai.Client(api_key=api_key)
@@ -238,6 +260,8 @@ def generate_audio(
             out.parent.mkdir(parents=True, exist_ok=True)
             out.write_bytes(data_buffer)
             logger.info("Saved wav: %s", out.name)
+            if hooks and hooks.on_chunk_success:
+                hooks.on_chunk_success(token_name)
             return
 
         except GenerationCancelled:
@@ -245,14 +269,25 @@ def generate_audio(
         except Exception as exc:
             last_error = exc
             if _is_rate_limit_error(exc):
+                exhausted_name = token_pool.current_name()
+                if hooks and hooks.on_quota_exhausted:
+                    hooks.on_quota_exhausted(exhausted_name)
                 if hooks and hooks.on_rate_limited:
                     hooks.on_rate_limited(token_pool.wait_seconds)
                 if not token_pool.advance():
+                    if hooks and hooks.on_pool_waiting:
+                        hooks.on_pool_waiting(token_pool.wait_seconds)
                     token_pool.wait_and_reset(
                         cancel_checker=cancel_checker,
                         on_tick=hooks.on_waiting_tick if hooks else None,
                     )
                     tried_all_tokens = True
+                elif hooks and hooks.on_token_switched:
+                    hooks.on_token_switched(
+                        exhausted_name,
+                        token_pool.current_name(),
+                        "429_quota",
+                    )
                 continue
 
             if attempt < max_attempts - 1:

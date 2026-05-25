@@ -84,6 +84,7 @@ class Settings(BaseSettings):
             self.temp_dir,
             self.temp_dir / "audio",
             self.temp_dir / "generation",
+            self.temp_dir / "quality",
             self.storage_root / "debug" / "chunks",
             self.log_file.parent,
             self.frontend_static_dir / "uploads",

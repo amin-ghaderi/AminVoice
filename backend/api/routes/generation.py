@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 from backend.api.deps import get_audiobook_generator, get_app_settings, get_pdf_intake_service
 from backend.config.settings import Settings
 from backend.schemas.chunk_preview import ChunkPreviewResponse
+from backend.schemas.audio_quality import AudioQualityReportResponse
 from backend.schemas.generation import GenerationStartResponse, GenerationStatusResponse
 from backend.services.audiobook_generator import AudiobookGenerator
 from backend.services.chunk_preview_service import build_chunk_preview
@@ -131,6 +132,17 @@ def cancel_generation(
 ) -> dict:
     generator.status_store.request_cancel(intake_id)
     return {"message": "Cancel requested.", "intake_id": intake_id}
+
+
+@router.get("/{intake_id}/audio-quality", response_model=AudioQualityReportResponse)
+def audio_quality_report(
+    intake_id: str,
+    generator: AudiobookGenerator = Depends(get_audiobook_generator),
+) -> AudioQualityReportResponse:
+    report = generator.quality_store.read(intake_id)
+    if report is None:
+        raise HTTPException(status_code=404, detail="Audio quality report not available.")
+    return AudioQualityReportResponse(**report.to_dict())
 
 
 @router.get("/{intake_id}/audiobook/download")

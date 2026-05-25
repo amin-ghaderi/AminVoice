@@ -37,10 +37,43 @@ class TokenTestResponse(BaseModel):
     message: str
 
 
+class TokenMonitorItem(BaseModel):
+    name: str
+    priority: int
+    status: str
+
+
+class UsageHistoryItem(BaseModel):
+    token: str
+    chunk_id: int
+    status: str
+    at: float
+
+
+class SwitchHistoryItem(BaseModel):
+    from_token: str
+    to_token: str
+    reason: str
+    chunk_id: int
+    at: float
+
+
 class TokenRuntimeStatusResponse(BaseModel):
-    active: bool
-    current_token_name: str | None = None
+    """Token pool observability — safe to poll during generation."""
+
+    active: bool = False
+    generation_active: bool = False
     intake_id: str | None = None
+    total_tokens: int = 0
+    active_token_index: int = 0
+    active_token_name: str | None = None
+    now_using: str | None = None
+    failed_tokens: list[str] = Field(default_factory=list)
+    pool_waiting: bool = False
     current_chunk: int = 0
     total_chunks: int = 0
     quota_failovers: int = 0
+    current_token_name: str | None = None
+    tokens: list[TokenMonitorItem] = Field(default_factory=list)
+    usage_history: list[UsageHistoryItem] = Field(default_factory=list)
+    switch_history: list[SwitchHistoryItem] = Field(default_factory=list)

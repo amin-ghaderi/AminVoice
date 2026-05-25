@@ -64,16 +64,31 @@
   const chunkStatMin = document.getElementById("chunk-stat-min");
   const chunkStatMax = document.getElementById("chunk-stat-max");
   const tokenWarning = document.getElementById("token-warning");
+  const tokenPoolMonitorSection = document.getElementById("token-pool-monitor-section");
+  const tokenNowUsingName = document.getElementById("token-now-using-name");
+  const tokenPoolList = document.getElementById("token-pool-list");
+  const tokenSwitchHistory = document.getElementById("token-switch-history");
+  const tokenMonitorUpdated = document.getElementById("token-monitor-updated");
+  const audioQualitySection = document.getElementById("audio-quality-section");
+  const qualityLabelBadge = document.getElementById("quality-label-badge");
+  const qualitySilence = document.getElementById("quality-silence");
+  const qualityDiscontinuities = document.getElementById("quality-discontinuities");
+  const qualityVariance = document.getElementById("quality-variance");
+  const qualityVariation = document.getElementById("quality-variation");
+  const qualityChunksMeta = document.getElementById("quality-chunks-meta");
 
   let currentIntake = null;
   let isEditing = false;
   let pollTimer = null;
   let heartbeatTimer = null;
+  let tokenMonitorTimer = null;
   let generationActive = false;
   let lastPollSuccessAt = 0;
+  let lastTokenMonitorAt = 0;
   let lastGoodStatus = null;
   let rotateIndex = 0;
   let pollInFlight = false;
+  let tokenMonitorInFlight = false;
 
   const ROTATING_ACTIVITY = [
     "Processing audio…",
@@ -271,6 +286,184 @@
     }
   }
 
+  function clearTokenMonitorTimer() {
+    if (tokenMonitorTimer) {
+      clearInterval(tokenMonitorTimer);
+      tokenMonitorTimer = null;
+    }
+  }
+
+  function updateTokenMonitorTimestamp() {
+    if (!tokenMonitorUpdated) return;
+    if (!lastTokenMonitorAt) {
+      tokenMonitorUpdated.textContent = "—";
+      return;
+    }
+    const seconds = Math.max(0, Math.floor((Date.now() - lastTokenMonitorAt) / 1000));
+    tokenMonitorUpdated.textContent =
+      seconds <= 1 ? "Updated just now" : "Updated " + seconds + "s ago";
+  }
+
+  function renderTokenPoolMonitor(data) {
+    if (!data) return;
+
+    const isLive = Boolean(data.generation_active || data.active);
+    if (tokenPoolMonitorSection) {
+      tokenPoolMonitorSection.classList.toggle("is-live", isLive);
+    }
+
+    const using = data.now_using || data.active_token_name || data.current_token_name || "—";
+    if (tokenNowUsingName) tokenNowUsingName.textContent = using;
+
+    if (tokenPoolList) {
+      const items = data.tokens || [];
+      if (!items.length) {
+        tokenPoolList.innerHTML =
+          '<p class="text-sm text-slate-500">No enabled tokens. <a href="/settings" class="text-accent hover:underline">Add keys</a>.</p>';
+      } else {
+        tokenPoolList.innerHTML = items
+          .map(function (item) {
+            const status = (item.status || "idle").toLowerCase();
+            const rowClass =
+              "token-pool-item" +
+              (status === "active" ? " is-active" : "") +
+              (status === "waiting" ? " is-waiting" : "") +
+              (status === "failed" ? " is-failed" : "");
+            const badgeClass = "token-status-badge " + status;
+            const label =
+              status === "active"
+                ? "Active"
+                : status === "waiting"
+                  ? "Waiting"
+                  : status === "failed"
+                    ? "Failed"
+                    : "Idle";
+            return (
+              '<div class="' +
+              rowClass +
+              '">' +
+              '<div><span class="text-sm font-medium text-slate-200">' +
+              escapeHtml(item.name) +
+              '</span><span class="ml-2 text-xs text-slate-500">#' +
+              item.priority +
+              "</span></div>" +
+              '<span class="' +
+              badgeClass +
+              '">' +
+              label +
+              "</span></div>"
+            );
+          })
+          .join("");
+      }
+    }
+
+    if (tokenSwitchHistory) {
+      const switches = data.switch_history || [];
+      if (!switches.length) {
+        tokenSwitchHistory.innerHTML =
+          '<li class="text-slate-600">No switches yet this session.</li>';
+      } else {
+        tokenSwitchHistory.innerHTML = switches
+          .slice()
+          .reverse()
+          .map(function (ev) {
+            return (
+              "<li>Chunk " +
+              ev.chunk_id +
+              ": " +
+              escapeHtml(ev.from_token) +
+              " → " +
+              escapeHtml(ev.to_token) +
+              " (" +
+              escapeHtml(ev.reason) +
+              ")</li>"
+            );
+          })
+          .join("");
+      }
+    }
+  }
+
+  async function pollTokenMonitor() {
+    if (tokenMonitorInFlight) return;
+    tokenMonitorInFlight = true;
+    try {
+      const response = await fetch("/api/v1/tokens/runtime-status");
+      const data = await response.json().catch(function () {
+        return null;
+      });
+      if (!response.ok || !data) return;
+      lastTokenMonitorAt = Date.now();
+      renderTokenPoolMonitor(data);
+      updateTokenMonitorTimestamp();
+    } catch (_err) {
+      /* keep last render */
+    } finally {
+      tokenMonitorInFlight = false;
+    }
+  }
+
+  function startTokenMonitorPolling() {
+    clearTokenMonitorTimer();
+    pollTokenMonitor();
+    tokenMonitorTimer = setInterval(pollTokenMonitor, 1500);
+  }
+
+  function renderAudioQualityReport(data) {
+    if (!data) return;
+    if (audioQualitySection) audioQualitySection.classList.remove("hidden");
+
+    if (qualitySilence) {
+      qualitySilence.textContent = (data.avg_chunk_silence_ratio * 100).toFixed(1) + "%";
+    }
+    if (qualityDiscontinuities) {
+      qualityDiscontinuities.textContent = String(data.discontinuities_count);
+    }
+    if (qualityVariance) {
+      qualityVariance.textContent = data.loudness_variance.toFixed(1) + " dB²";
+    }
+    if (qualityVariation) {
+      qualityVariation.textContent = data.chunk_variation_score.toFixed(1) + " / 100";
+    }
+    if (qualityChunksMeta) {
+      qualityChunksMeta.textContent =
+        "Analyzed " + data.chunk_count + " chunk WAV files for this audiobook.";
+    }
+    if (qualityLabelBadge) {
+      const label = (data.quality_label || "unknown").replace("_", " ");
+      qualityLabelBadge.textContent = label;
+      qualityLabelBadge.className =
+        "rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide quality-badge-" +
+        (data.quality_label || "fair");
+    }
+  }
+
+  function hideAudioQualityReport() {
+    if (audioQualitySection) audioQualitySection.classList.add("hidden");
+  }
+
+  async function fetchAudioQualityReport() {
+    if (!currentIntake) return;
+    try {
+      const response = await fetch(
+        "/api/v1/pdf/" + currentIntake.intake_id + "/audio-quality"
+      );
+      if (response.status === 404) {
+        hideAudioQualityReport();
+        return;
+      }
+      const data = await response.json().catch(function () {
+        return null;
+      });
+      if (response.ok && data) {
+        renderAudioQualityReport(data);
+      }
+    } catch (_err) {
+      hideAudioQualityReport();
+    }
+  }
+
   function stopPolling() {
     clearPollTimers();
     generationActive = false;
@@ -291,6 +484,7 @@
     clearPollTimers();
     pollTimer = setInterval(pollGenerationStatus, 1200);
     heartbeatTimer = setInterval(tickHeartbeat, 1000);
+    startTokenMonitorPolling();
     tickHeartbeat();
   }
 
@@ -447,8 +641,9 @@
   }
 
   function tickHeartbeat() {
-    if (!generationActive) return;
     rotateIndex += 1;
+    updateTokenMonitorTimestamp();
+    if (!generationActive) return;
     updateLastUpdatedLabel();
     if (lastGoodStatus) {
       updateActivityPresentation(lastGoodStatus, rotateIndex);
@@ -496,6 +691,7 @@
       lastPollSuccessAt = Date.now();
       lastGoodStatus = data;
       updateProgressUI(data);
+      pollTokenMonitor();
 
       if (TERMINAL_STATUSES.indexOf(data.status) >= 0) {
         clearPollTimers();
@@ -513,6 +709,7 @@
             "/api/v1/pdf/" + currentIntake.intake_id + "/audiobook/download";
         }
         showGenerationMessage("Your audiobook is ready — download below.");
+        fetchAudioQualityReport();
         return;
       }
 
@@ -641,6 +838,7 @@
     if (progressProject) progressProject.textContent = currentIntake.filename;
     if (btnCancelGeneration) btnCancelGeneration.classList.remove("hidden");
     if (downloadAudiobook) downloadAudiobook.classList.add("hidden");
+    hideAudioQualityReport();
 
     startGenerationUX();
     updateProgressUI({
@@ -768,6 +966,13 @@
       }
     } catch (_err) {
       /* ignore */
+    }
+    pollTokenMonitor();
+    if (!tokenMonitorTimer) {
+      tokenMonitorTimer = setInterval(function () {
+        pollTokenMonitor();
+        updateTokenMonitorTimestamp();
+      }, 2000);
     }
   }
 

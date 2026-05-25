@@ -211,6 +211,27 @@
     </div>
   </div>
 
+  <section
+    id="token-pool-monitor-section"
+    class="token-monitor-panel rounded-2xl border border-slate-800 bg-surface-light p-6 shadow-xl"
+  >
+    <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 class="text-xl font-semibold text-white">Token pool monitor</h2>
+        <p class="mt-1 text-sm text-slate-400">Live API key usage during generation (read-only).</p>
+      </div>
+      <p id="token-monitor-updated" class="gen-last-updated">—</p>
+    </div>
+    <p id="token-now-using" class="token-now-using mb-4">Now using: <strong id="token-now-using-name">—</strong></p>
+    <div id="token-pool-list" class="token-pool-list mb-4">
+      <p class="text-sm text-slate-500">Configure tokens in <a href="/settings" class="text-accent hover:underline">Settings</a>.</p>
+    </div>
+    <div>
+      <p class="mb-2 text-xs uppercase tracking-wide text-slate-500">Recent switches</p>
+      <ul id="token-switch-history" class="token-switch-log list-none space-y-0"></ul>
+    </div>
+  </section>
+
   <section id="generation-progress-section" class="rounded-2xl border border-slate-800 bg-surface-light p-6 shadow-xl">
     <div class="mb-5 flex flex-wrap items-center justify-between gap-3">
       <h2 class="text-xl font-semibold text-white">Audiobook generation</h2>
@@ -274,6 +295,38 @@
       </a>
     </div>
     <p id="generation-msg" class="mt-3 hidden text-sm text-slate-400"></p>
+  </section>
+
+  <section
+    id="audio-quality-section"
+    class="hidden rounded-2xl border border-slate-800 bg-surface-light p-6 shadow-xl"
+  >
+    <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 class="text-xl font-semibold text-white">Audio quality report</h2>
+        <p class="mt-1 text-sm text-slate-400">Heuristic checks on chunk WAVs after merge (no ML).</p>
+      </div>
+      <span id="quality-label-badge" class="rounded-full px-3 py-1 text-xs font-semibold uppercase tracking-wide">—</span>
+    </div>
+    <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div class="rounded-xl bg-slate-900/60 p-4">
+        <p class="text-xs uppercase tracking-wide text-slate-500">Avg silence ratio</p>
+        <p id="quality-silence" class="mt-1 text-lg font-medium text-slate-200">—</p>
+      </div>
+      <div class="rounded-xl bg-slate-900/60 p-4">
+        <p class="text-xs uppercase tracking-wide text-slate-500">Discontinuities</p>
+        <p id="quality-discontinuities" class="mt-1 text-lg font-medium text-slate-200">—</p>
+      </div>
+      <div class="rounded-xl bg-slate-900/60 p-4">
+        <p class="text-xs uppercase tracking-wide text-slate-500">Loudness variance</p>
+        <p id="quality-variance" class="mt-1 text-lg font-medium text-slate-200">—</p>
+      </div>
+      <div class="rounded-xl bg-slate-900/60 p-4">
+        <p class="text-xs uppercase tracking-wide text-slate-500">Chunk variation</p>
+        <p id="quality-variation" class="mt-1 text-lg font-medium text-slate-200">—</p>
+      </div>
+    </div>
+    <p id="quality-chunks-meta" class="mt-3 text-xs text-slate-500">—</p>
   </section>
 </div>
 {% endblock %}
