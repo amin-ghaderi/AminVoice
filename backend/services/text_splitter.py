@@ -13,9 +13,14 @@ SOFT_MIN_CHARS = 350
 SOFT_MAX_CHARS = 2000
 HARD_MAX_CHARS = 2800
 
-# Post-validation targets (~2 min narration, sentence-safe).
+# Post-validation targets (sentence-safe; max size is UI-controlled).
 VALIDATION_MIN_CHARS = 300
-VALIDATION_MAX_CHARS = 1300
+DEFAULT_VALIDATION_MAX_CHARS = 1300
+VALIDATION_MAX_CLAMP_MIN = 600
+VALIDATION_MAX_CLAMP_MAX = 1300
+
+# Legacy alias for callers that import the default cap.
+VALIDATION_MAX_CHARS = DEFAULT_VALIDATION_MAX_CHARS
 
 # Persian-aware sentence boundaries (delimiter kept on the left segment).
 _SENTENCE_SPLIT = re.compile(
@@ -50,15 +55,29 @@ class ChunkingStats:
         }
 
 
-def split_text(text: str, max_chars: int | None = None) -> list[str]:
+def resolve_validation_max_chars(value: int | None) -> int:
+    """Clamp UI-provided validation cap; default when missing."""
+    if value is None:
+        return DEFAULT_VALIDATION_MAX_CHARS
+    return max(VALIDATION_MAX_CLAMP_MIN, min(VALIDATION_MAX_CLAMP_MAX, int(value)))
+
+
+def split_text(
+    text: str,
+    max_chars: int | None = None,
+    *,
+    validation_max_chars: int | None = None,
+) -> list[str]:
     """
     Split text into narration chunks using hierarchical semantic boundaries.
 
     Priority: paragraph (\\n\\n) → sentence → single newline (weak) → hard split.
     ``max_chars`` overrides soft max when provided (legacy API); hard cap still applies.
+    ``validation_max_chars`` only affects the post-validation pass (600–1300).
     """
     soft_max = max_chars if max_chars is not None else _DEFAULT_SOFT_MAX
     soft_max = min(soft_max, HARD_MAX_CHARS)
+    validation_max = resolve_validation_max_chars(validation_max_chars)
 
     cleaned = _strip_page_markers(text).strip()
     if not cleaned:
@@ -67,15 +86,22 @@ def split_text(text: str, max_chars: int | None = None) -> list[str]:
     units = _build_semantic_units(cleaned, soft_max)
     chunks = _pack_units(units, soft_max=soft_max, hard_max=HARD_MAX_CHARS)
     chunks = _merge_small_chunks(chunks, soft_min=SOFT_MIN_CHARS, hard_max=HARD_MAX_CHARS)
-    chunks = _validate_chunks(chunks)
+    chunks = _validate_chunks(chunks, validation_max_chars=validation_max)
 
-    stats = compute_chunking_stats(chunks)
+    stats = compute_chunking_stats(chunks, validation_max_chars=validation_max)
     log_chunking_stats(stats)
-    logger.info("Chunk validation pass completed")
+    logger.info(
+        "Chunk validation pass completed (validation_max_chars=%s)",
+        validation_max,
+    )
     return chunks
 
 
-def compute_chunking_stats(chunks: list[str]) -> ChunkingStats:
+def compute_chunking_stats(
+    chunks: list[str],
+    *,
+    validation_max_chars: int = DEFAULT_VALIDATION_MAX_CHARS,
+) -> ChunkingStats:
     lengths = [len(c) for c in chunks]
     if not lengths:
         return ChunkingStats(0, 0.0, 0, 0, 0, 0)
@@ -87,7 +113,7 @@ def compute_chunking_stats(chunks: list[str]) -> ChunkingStats:
         count_below_soft_min=sum(1 for n in lengths if n < SOFT_MIN_CHARS),
         count_above_hard_warn=sum(1 for n in lengths if n > 2500),
         count_small_chunks=sum(1 for n in lengths if n < VALIDATION_MIN_CHARS),
-        count_large_chunks=sum(1 for n in lengths if n > VALIDATION_MAX_CHARS),
+        count_large_chunks=sum(1 for n in lengths if n > validation_max_chars),
     )
 
 
@@ -234,7 +260,11 @@ def _ends_with_sentence(text: str) -> bool:
     return bool(_SENTENCE_END.search(text.strip()))
 
 
-def _validate_chunks(chunks: list[str]) -> list[str]:
+def _validate_chunks(
+    chunks: list[str],
+    *,
+    validation_max_chars: int = DEFAULT_VALIDATION_MAX_CHARS,
+) -> list[str]:
     """Post-process: enforce size limits and sentence boundaries."""
     result = [chunk.strip() for chunk in chunks if chunk.strip()]
     if not result:
@@ -242,9 +272,11 @@ def _validate_chunks(chunks: list[str]) -> list[str]:
 
     for _ in range(4):
         before = result
-        result = _split_oversized_chunks(result, VALIDATION_MAX_CHARS)
-        result = _merge_validation_small(result, VALIDATION_MIN_CHARS, VALIDATION_MAX_CHARS)
-        result = _fix_incomplete_endings(result, VALIDATION_MAX_CHARS)
+        result = _split_oversized_chunks(result, validation_max_chars)
+        result = _merge_validation_small(
+            result, VALIDATION_MIN_CHARS, validation_max_chars
+        )
+        result = _fix_incomplete_endings(result, validation_max_chars)
         result = [chunk.strip() for chunk in result if chunk.strip()]
         if result == before:
             break

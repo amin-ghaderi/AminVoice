@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from backend.services.text_splitter import (
+    DEFAULT_VALIDATION_MAX_CHARS,
     HARD_MAX_CHARS,
     VALIDATION_MAX_CHARS,
     VALIDATION_MIN_CHARS,
     compute_chunking_stats,
+    resolve_validation_max_chars,
     split_text,
 )
 
@@ -96,3 +98,18 @@ def test_validation_report_counts():
     stats = compute_chunking_stats(chunks)
     assert stats.count_small_chunks == sum(1 for c in chunks if len(c) < VALIDATION_MIN_CHARS)
     assert stats.count_large_chunks == sum(1 for c in chunks if len(c) > VALIDATION_MAX_CHARS)
+
+
+def test_resolve_validation_max_chars_clamps():
+    assert resolve_validation_max_chars(None) == DEFAULT_VALIDATION_MAX_CHARS
+    assert resolve_validation_max_chars(1000) == 1000
+    assert resolve_validation_max_chars(500) == 600
+    assert resolve_validation_max_chars(2000) == 1300
+
+
+def test_validation_max_chars_produces_more_chunks():
+    long = "جمله دوم. " * 400 + "\n\n" + "جمله سوم. " * 400
+    small = split_text(long, validation_max_chars=600)
+    large = split_text(long, validation_max_chars=1300)
+    assert len(small) >= len(large)
+    assert all(len(c) <= 650 for c in small)

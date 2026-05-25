@@ -60,13 +60,14 @@ class AudiobookGenerator:
         project_name: str,
         *,
         scene_context: SceneContext | None = None,
+        validation_max_chars: int | None = None,
     ) -> None:
         audio_dir = self._settings.temp_dir / "audio" / intake_id
         audio_dir.mkdir(parents=True, exist_ok=True)
         output_dir = self._settings.outputs_dir / intake_id
         output_path = output_dir / "final_audiobook.wav"
 
-        chunks = split_text(text)
+        chunks = split_text(text, validation_max_chars=validation_max_chars)
         if not chunks:
             self._fail(intake_id, "No text to narrate.")
             return

@@ -23,12 +23,13 @@ class GenerationStatusResponse(BaseModel):
 
 
 class GenerationContinueRequest(BaseModel):
-    """Optional scene settings when starting generation (Phase 5.2)."""
+    """Optional scene settings and chunk validation cap when starting generation."""
 
     scene: str | None = None
     style: str | None = None
     tone: str | None = None
     use_scene: bool = False
+    validation_max_chars: int | None = None
 
 
 class GenerationStartResponse(BaseModel):

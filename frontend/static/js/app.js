@@ -7,6 +7,21 @@
 
   const STORAGE_SKIP_PREVIEW = "aminvoice_skip_pdf_preview";
 
+  const CHUNK_QUALITY_MAP = {
+    ultra: 600,
+    high: 800,
+    balanced: 1000,
+    fast: 1150,
+    max: 1300,
+  };
+
+  const chunkQualitySelect = document.getElementById("chunk-quality");
+
+  function getValidationMaxChars() {
+    const key = chunkQualitySelect ? chunkQualitySelect.value : "balanced";
+    return CHUNK_QUALITY_MAP[key] != null ? CHUNK_QUALITY_MAP[key] : CHUNK_QUALITY_MAP.balanced;
+  }
+
   function formatApiError(payload, fallback) {
     const detail = payload && payload.detail;
     if (typeof detail === "string") return detail;
@@ -834,19 +849,21 @@
   }
 
   function buildContinueFetchOptions() {
-    const options = { method: "POST" };
-    if (!sceneEnable || !sceneEnable.checked) {
-      return options;
+    const body = {
+      validation_max_chars: getValidationMaxChars(),
+    };
+    if (sceneEnable && sceneEnable.checked) {
+      const sceneText = sceneInput && sceneInput.value.trim();
+      body.use_scene = true;
+      body.scene = sceneText || null;
+      body.style = sceneStyle ? sceneStyle.value : null;
+      body.tone = sceneTone ? sceneTone.value : null;
     }
-    const sceneText = sceneInput && sceneInput.value.trim();
-    options.headers = { "Content-Type": "application/json" };
-    options.body = JSON.stringify({
-      use_scene: true,
-      scene: sceneText || null,
-      style: sceneStyle ? sceneStyle.value : null,
-      tone: sceneTone ? sceneTone.value : null,
-    });
-    return options;
+    return {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    };
   }
 
   async function continueToGeneration() {

@@ -37,9 +37,16 @@ def _run_generation(
     text: str,
     project_name: str,
     scene_context: SceneContext | None = None,
+    validation_max_chars: int | None = None,
 ) -> None:
     try:
-        generator.run(intake_id, text, project_name, scene_context=scene_context)
+        generator.run(
+            intake_id,
+            text,
+            project_name,
+            scene_context=scene_context,
+            validation_max_chars=validation_max_chars,
+        )
     except Exception as exc:
         logger.exception("Generation crashed for %s", intake_id)
         generator._fail(intake_id, str(exc))
@@ -83,9 +90,12 @@ def continue_to_generation(
             raise HTTPException(status_code=409, detail="Generation already running.")
         _active_jobs.add(intake_id)
 
-    from backend.services.text_splitter import split_text
+    from backend.services.text_splitter import resolve_validation_max_chars, split_text
 
-    chunks = split_text(payload.full_text)
+    validation_max = resolve_validation_max_chars(
+        body.validation_max_chars if body else None
+    )
+    chunks = split_text(payload.full_text, validation_max_chars=validation_max)
     if not chunks:
         with _active_lock:
             _active_jobs.discard(intake_id)
@@ -99,6 +109,7 @@ def continue_to_generation(
     )
     logger.info("Scene mode: %s", scene_context.is_enabled())
     logger.info("Scene config: %s", scene_context)
+    logger.info("Chunk validation_max_chars=%s (total_chunks=%s)", validation_max, len(chunks))
 
     background_tasks.add_task(
         _run_generation,
@@ -107,6 +118,7 @@ def continue_to_generation(
         payload.full_text,
         payload.filename,
         scene_context,
+        validation_max,
     )
 
     return GenerationStartResponse(

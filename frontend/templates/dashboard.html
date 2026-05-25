@@ -54,19 +54,21 @@
       </div>
 
       <div>
-        <label for="chunk-duration" class="mb-2 block text-sm font-medium text-slate-300">Chunk duration</label>
+        <label for="chunk-quality" class="mb-2 block text-sm font-medium text-slate-300">Chunk Quality</label>
         <select
-          id="chunk-duration"
-          name="chunk_duration"
-          class="w-full max-w-xs rounded-lg border border-slate-600 bg-slate-900 px-4 py-2.5 text-sm text-slate-100 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
-          disabled
+          id="chunk-quality"
+          name="chunk_quality"
+          class="w-full max-w-md rounded-lg border border-slate-600 bg-slate-900 px-4 py-2.5 text-sm text-slate-100 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent"
         >
-          <option value="2">2 minutes</option>
-          <option value="3">3 minutes</option>
-          <option value="4" selected>4 minutes (default)</option>
-          <option value="5">5 minutes</option>
-          <option value="6">6 minutes</option>
+          <option value="ultra">Ultra High Quality (600 chars)</option>
+          <option value="high">High Quality (800 chars)</option>
+          <option value="balanced" selected>Balanced (1000 chars)</option>
+          <option value="fast">Fast (1150 chars)</option>
+          <option value="max">Maximum Speed (1300 chars)</option>
         </select>
+        <p class="mt-1 text-xs text-slate-400">
+          Smaller segments improve narration quality; larger segments finish faster.
+        </p>
       </div>
 
       <fieldset id="scene-control-panel" class="space-y-4 rounded-xl border border-slate-700/80 bg-slate-900/40 p-4">
@@ -236,7 +238,7 @@
         <div class="flex items-start justify-between gap-4 border-b border-slate-700 px-6 py-4">
           <div>
             <h2 class="text-lg font-semibold text-white">Chunk preview</h2>
-            <p class="mt-1 text-xs text-slate-400">Same semantic splitter used for TTS (~300–1300 chars, ~2 min per chunk).</p>
+            <p class="mt-1 text-xs text-slate-400">Preview uses default packing; generation uses your Chunk Quality setting (600–1300 chars).</p>
           </div>
           <button type="button" id="chunk-modal-close" class="rounded-lg px-3 py-1 text-sm text-slate-400 hover:bg-slate-800 hover:text-white">
             Close
