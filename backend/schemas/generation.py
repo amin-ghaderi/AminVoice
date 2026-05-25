@@ -22,6 +22,15 @@ class GenerationStatusResponse(BaseModel):
     error: str | None = None
 
 
+class GenerationContinueRequest(BaseModel):
+    """Optional scene settings when starting generation (Phase 5.2)."""
+
+    scene: str | None = None
+    style: str | None = None
+    tone: str | None = None
+    use_scene: bool = False
+
+
 class GenerationStartResponse(BaseModel):
     message: str
     intake_id: str

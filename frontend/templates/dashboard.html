@@ -69,6 +69,62 @@
         </select>
       </div>
 
+      <fieldset id="scene-control-panel" class="space-y-4 rounded-xl border border-slate-700/80 bg-slate-900/40 p-4">
+        <legend class="text-sm font-medium text-slate-300">Scene control</legend>
+        <label class="flex items-center gap-3 text-sm text-slate-200">
+          <input
+            type="checkbox"
+            id="scene-enable"
+            name="use_scene"
+            class="h-4 w-4 rounded border-slate-600 bg-slate-900 text-accent focus:ring-accent"
+          />
+          Enable Scene Mode
+        </label>
+        <div id="scene-fields" class="space-y-4 opacity-60">
+          <div>
+            <label for="scene-input" class="mb-2 block text-sm font-medium text-slate-300">Scene</label>
+            <input
+              type="text"
+              id="scene-input"
+              name="scene"
+              disabled
+              placeholder="e.g. rainy library, historical documentary..."
+              class="w-full rounded-lg border border-slate-600 bg-slate-900 px-4 py-2.5 text-sm text-slate-100 placeholder:text-slate-500 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:cursor-not-allowed"
+            />
+          </div>
+          <div class="grid gap-4 sm:grid-cols-2">
+            <div>
+              <label for="scene-style" class="mb-2 block text-sm font-medium text-slate-300">Style</label>
+              <select
+                id="scene-style"
+                name="style"
+                disabled
+                class="w-full rounded-lg border border-slate-600 bg-slate-900 px-4 py-2.5 text-sm text-slate-100 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:cursor-not-allowed"
+              >
+                <option value="neutral narration" selected>neutral narration</option>
+                <option value="documentary">documentary</option>
+                <option value="dramatic storytelling">dramatic storytelling</option>
+                <option value="cinematic">cinematic</option>
+              </select>
+            </div>
+            <div>
+              <label for="scene-tone" class="mb-2 block text-sm font-medium text-slate-300">Tone</label>
+              <select
+                id="scene-tone"
+                name="tone"
+                disabled
+                class="w-full rounded-lg border border-slate-600 bg-slate-900 px-4 py-2.5 text-sm text-slate-100 focus:border-accent focus:outline-none focus:ring-1 focus:ring-accent disabled:cursor-not-allowed"
+              >
+                <option value="calm" selected>calm</option>
+                <option value="formal">formal</option>
+                <option value="emotional">emotional</option>
+                <option value="neutral">neutral</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      </fieldset>
+
       <fieldset class="space-y-3">
         <legend class="text-sm font-medium text-slate-300">Generation options</legend>
         <label class="flex cursor-not-allowed items-center gap-3 text-sm text-slate-400">

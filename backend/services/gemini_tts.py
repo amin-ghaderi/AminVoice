@@ -13,6 +13,7 @@ from pathlib import Path
 from google import genai
 from google.genai import types
 
+from backend.services.scene_context import SceneContext
 from backend.services.token_pool import GenerationCancelled, TokenPool
 
 logger = logging.getLogger(__name__)
@@ -184,12 +185,24 @@ def _is_rate_limit_error(exc: Exception) -> bool:
     return "429" in message or "RESOURCE_EXHAUSTED" in message
 
 
-def _build_tts_prompt(transcript: str, continuity_note: str | None = None) -> str:
+def _build_tts_prompt(
+    transcript: str,
+    continuity_note: str | None = None,
+    scene_context: SceneContext | None = None,
+) -> str:
     parts = [_DIRECTOR_PROMPT.rstrip()]
     note = (continuity_note or "").strip()
     if note:
         parts.append("\n\n## Voice continuity (do NOT read aloud):\n")
         parts.append(note)
+    # Phase 5.2 A/B: enhanced prompt only when scene feature is explicitly enabled.
+    use_enhanced_scene_prompt = bool(scene_context and scene_context.is_enabled())
+    if use_enhanced_scene_prompt:
+        block = scene_context.build_prompt_block()
+        if block:
+            parts.append("\n\n")
+            parts.append(block)
+    # Baseline path: director + continuity + transcript (no scene block).
     parts.append("\n\n")
     parts.append(transcript.strip())
     return "".join(parts)
@@ -203,9 +216,10 @@ def generate_audio(
     max_attempts: int = 15,
     hooks: TtsProgressHooks | None = None,
     continuity_note: str | None = None,
+    scene_context: SceneContext | None = None,
 ) -> None:
     """Generate one WAV file for a text chunk with token fallback on quota errors."""
-    prompt = _build_tts_prompt(text, continuity_note)
+    prompt = _build_tts_prompt(text, continuity_note, scene_context=scene_context)
     config = _build_generate_config()
     contents = [
         types.Content(

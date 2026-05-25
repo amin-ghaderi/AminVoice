@@ -6,15 +6,20 @@ import logging
 import threading
 from pathlib import Path
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException
 from fastapi.responses import FileResponse
 
 from backend.api.deps import get_audiobook_generator, get_app_settings, get_pdf_intake_service
 from backend.config.settings import Settings
 from backend.schemas.chunk_preview import ChunkPreviewResponse
 from backend.schemas.audio_quality import AudioQualityReportResponse
-from backend.schemas.generation import GenerationStartResponse, GenerationStatusResponse
+from backend.schemas.generation import (
+    GenerationContinueRequest,
+    GenerationStartResponse,
+    GenerationStatusResponse,
+)
 from backend.services.audiobook_generator import AudiobookGenerator
+from backend.services.scene_context import SceneContext, build_scene_context
 from backend.services.chunk_preview_service import build_chunk_preview
 from backend.services.pdf_intake_service import PdfIntakeService
 
@@ -31,9 +36,10 @@ def _run_generation(
     intake_id: str,
     text: str,
     project_name: str,
+    scene_context: SceneContext | None = None,
 ) -> None:
     try:
-        generator.run(intake_id, text, project_name)
+        generator.run(intake_id, text, project_name, scene_context=scene_context)
     except Exception as exc:
         logger.exception("Generation crashed for %s", intake_id)
         generator._fail(intake_id, str(exc))
@@ -66,6 +72,7 @@ def continue_to_generation(
     background_tasks: BackgroundTasks,
     intake_service: PdfIntakeService = Depends(get_pdf_intake_service),
     generator: AudiobookGenerator = Depends(get_audiobook_generator),
+    body: GenerationContinueRequest | None = Body(default=None),
 ) -> GenerationStartResponse:
     payload = intake_service.get_intake(intake_id)
     if payload is None:
@@ -84,12 +91,22 @@ def continue_to_generation(
             _active_jobs.discard(intake_id)
         raise HTTPException(status_code=400, detail="No text available for generation.")
 
+    scene_context = build_scene_context(
+        use_scene=body.use_scene if body else False,
+        scene=body.scene if body else None,
+        style=body.style if body else None,
+        tone=body.tone if body else None,
+    )
+    logger.info("Scene mode: %s", scene_context.is_enabled())
+    logger.info("Scene config: %s", scene_context)
+
     background_tasks.add_task(
         _run_generation,
         generator,
         intake_id,
         payload.full_text,
         payload.filename,
+        scene_context,
     )
 
     return GenerationStartResponse(

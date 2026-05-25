@@ -76,6 +76,11 @@
   const qualityVariance = document.getElementById("quality-variance");
   const qualityVariation = document.getElementById("quality-variation");
   const qualityChunksMeta = document.getElementById("quality-chunks-meta");
+  const sceneEnable = document.getElementById("scene-enable");
+  const sceneFields = document.getElementById("scene-fields");
+  const sceneInput = document.getElementById("scene-input");
+  const sceneStyle = document.getElementById("scene-style");
+  const sceneTone = document.getElementById("scene-tone");
 
   let currentIntake = null;
   let isEditing = false;
@@ -818,6 +823,32 @@
     }
   }
 
+  function syncSceneFieldsState() {
+    const enabled = Boolean(sceneEnable && sceneEnable.checked);
+    if (sceneFields) {
+      sceneFields.classList.toggle("opacity-60", !enabled);
+    }
+    [sceneInput, sceneStyle, sceneTone].forEach(function (el) {
+      if (el) el.disabled = !enabled;
+    });
+  }
+
+  function buildContinueFetchOptions() {
+    const options = { method: "POST" };
+    if (!sceneEnable || !sceneEnable.checked) {
+      return options;
+    }
+    const sceneText = sceneInput && sceneInput.value.trim();
+    options.headers = { "Content-Type": "application/json" };
+    options.body = JSON.stringify({
+      use_scene: true,
+      scene: sceneText || null,
+      style: sceneStyle ? sceneStyle.value : null,
+      tone: sceneTone ? sceneTone.value : null,
+    });
+    return options;
+  }
+
   async function continueToGeneration() {
     if (!currentIntake) return;
 
@@ -851,7 +882,7 @@
 
     const response = await fetch(
       "/api/v1/pdf/" + currentIntake.intake_id + "/continue",
-      { method: "POST" }
+      buildContinueFetchOptions()
     );
     const payload = await response.json().catch(function () {
       return {};
@@ -922,6 +953,11 @@
 
   if (btnSaveEdit) {
     btnSaveEdit.addEventListener("click", saveEdits);
+  }
+
+  if (sceneEnable) {
+    sceneEnable.addEventListener("change", syncSceneFieldsState);
+    syncSceneFieldsState();
   }
 
   if (btnContinue) {

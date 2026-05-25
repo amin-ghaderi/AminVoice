@@ -12,6 +12,7 @@ from backend.services.audio_quality_report import AudioQualityReportStore, analy
 from backend.services.chunk_voice_normalizer import normalize_chunk_for_tts
 from backend.services.voice_continuity import VoiceContinuityTracker
 from backend.services.gemini_tts import TtsProgressHooks, generate_audio
+from backend.services.scene_context import SceneContext
 from backend.services.generation_status import GenerationStatus, GenerationStatusStore
 from backend.services.text_splitter import split_text
 from backend.services.token_config import load_enabled_tokens
@@ -52,7 +53,14 @@ class AudiobookGenerator:
     def quality_store(self) -> AudioQualityReportStore:
         return self._quality_store
 
-    def run(self, intake_id: str, text: str, project_name: str) -> None:
+    def run(
+        self,
+        intake_id: str,
+        text: str,
+        project_name: str,
+        *,
+        scene_context: SceneContext | None = None,
+    ) -> None:
         audio_dir = self._settings.temp_dir / "audio" / intake_id
         audio_dir.mkdir(parents=True, exist_ok=True)
         output_dir = self._settings.outputs_dir / intake_id
@@ -97,6 +105,10 @@ class AudiobookGenerator:
         if start_index > 1:
             continuity.seed_from_text(normalize_chunk_for_tts(chunks[start_index - 2]))
 
+        scene_context = scene_context or SceneContext()
+        logger.info("Scene mode: %s", scene_context.is_enabled())
+        logger.info("Scene config: %s", scene_context)
+
         start_time = time.time()
 
         try:
@@ -139,6 +151,7 @@ class AudiobookGenerator:
                     token_pool,
                     status,
                     monitor,
+                    scene_context=scene_context,
                 )
                 continuity.after_chunk(prepared.transcript_text)
                 chunk_paths.append(wav_path)
@@ -202,6 +215,7 @@ class AudiobookGenerator:
         status: GenerationStatus,
         monitor,
         *,
+        scene_context: SceneContext | None = None,
         per_chunk_attempts: int = 5,
     ) -> None:
         hooks = TtsProgressHooks(
@@ -251,6 +265,7 @@ class AudiobookGenerator:
                     max_attempts=12,
                     hooks=hooks,
                     continuity_note=continuity_note,
+                    scene_context=scene_context,
                 )
                 self._sync_token_fields(status, token_pool)
                 monitor.sync_active(token_pool.current_name(), token_pool.current_index)
